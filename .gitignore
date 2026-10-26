@@ -1,0 +1,12 @@
+.venv/
+data/
+__pycache__/
+*.pt
+*.mp4
+*.png
+!docs/**/*.png
+logs/
+# full clone of the old project; it already lives at github.com/houndsolo/yt2slp
+reference/yt2slp/
+*.egg-info/
+.pytest_cache/

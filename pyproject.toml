@@ -1,0 +1,17 @@
+# Minimal project file. It lets scripts and tests do `import vid2slp`
+# after a one-time editable install:
+#     uv pip install --python .venv/bin/python -e .
+[project]
+name = "vid2slp"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

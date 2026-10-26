@@ -1,0 +1,3138 @@
+{
+  "kind": "fixed-final-expanded-root-controller-result",
+  "checkpoint": {
+    "file": "checkpoints/step-000010000-1793043858534675067.pt",
+    "sha256": "f65225d648b29a2ea37b02a64ef7f05e4876ffb8c59b1ee1f1d551080df11bee",
+    "step": 10000,
+    "validation_file": "checkpoints/step-000010000-1793043858534675067.json",
+    "validation_sha256": "4eab2402fac6c12c0fa5d6ab7e0c47f18b3bffa9e4b54a394e277cd1bf111cf4"
+  },
+  "selection": "fixed-final",
+  "metrics": {
+    "global": {
+      "button_metrics": {
+        "hold": {
+          "tp": 28444,
+          "fp": 97838,
+          "fn": 19386,
+          "f1": 0.3267322183422165
+        },
+        "press": {
+          "tp": 936,
+          "fp": 14209,
+          "fn": 4516,
+          "f1": 0.09088702238190027
+        },
+        "release": {
+          "tp": 259,
+          "fp": 14882,
+          "fn": 5192,
+          "f1": 0.025155400155400156
+        }
+      },
+      "state_metrics": {
+        "axis_stick_x": {
+          "compared": 128150,
+          "correct": 61292,
+          "accuracy": 0.47828326180257513,
+          "neutral_baseline_accuracy": 0.4556301209520094
+        },
+        "axis_stick_y": {
+          "compared": 128150,
+          "correct": 88298,
+          "accuracy": 0.6890206788919235,
+          "neutral_baseline_accuracy": 0.6720327740928599
+        },
+        "axis_cstick_x": {
+          "compared": 128150,
+          "correct": 123646,
+          "accuracy": 0.9648536870854467,
+          "neutral_baseline_accuracy": 0.9655793991416309
+        },
+        "axis_cstick_y": {
+          "compared": 128150,
+          "correct": 121391,
+          "accuracy": 0.9472571205618416,
+          "neutral_baseline_accuracy": 0.9455715957861881
+        },
+        "axis_trigger": {
+          "compared": 128150,
+          "correct": 96449,
+          "accuracy": 0.7526258291065158,
+          "neutral_baseline_accuracy": 0.8433632461958642
+        },
+        "action": {
+          "compared": 128150,
+          "correct": 69718,
+          "accuracy": 0.5440343347639485
+        },
+        "airborne": {
+          "compared": 128150,
+          "correct": 119605,
+          "accuracy": 0.9333203277409285
+        }
+      },
+      "constraint_metrics": {
+        "invalid_button_frames": 0,
+        "invalid_trigger_frames": 0
+      },
+      "event_f1_mean": 0.14759154695983898,
+      "windows": 64075,
+      "image_seed_frames": 55,
+      "held_runs": {
+        "dleft": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dright": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "ddown": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dup": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "z": {
+          "original_censored_runs": 3,
+          "predicted_censored_runs": 12,
+          "original_complete_runs": 998,
+          "predicted_complete_runs": 1440,
+          "by_original_duration": {
+            "1": {
+              "runs": 24,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 91,
+              "press_exact": 5,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 444,
+              "press_exact": 27,
+              "release_exact": 10,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "5-8": {
+              "runs": 368,
+              "press_exact": 17,
+              "release_exact": 18,
+              "both_boundaries_exact": 2,
+              "exact_run": 1
+            },
+            "9-16": {
+              "runs": 70,
+              "press_exact": 4,
+              "release_exact": 3,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 1,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 243,
+            "2": 176,
+            "1": 365,
+            "3-4": 228,
+            "9-16": 224,
+            "5-8": 204
+          }
+        },
+        "r": {
+          "original_censored_runs": 11,
+          "predicted_censored_runs": 26,
+          "original_complete_runs": 520,
+          "predicted_complete_runs": 1852,
+          "by_original_duration": {
+            "1": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 31,
+              "press_exact": 2,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 365,
+              "press_exact": 34,
+              "release_exact": 22,
+              "both_boundaries_exact": 2,
+              "exact_run": 1
+            },
+            "9-16": {
+              "runs": 107,
+              "press_exact": 10,
+              "release_exact": 12,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "17+": {
+              "runs": 13,
+              "press_exact": 0,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 472,
+            "5-8": 348,
+            "17+": 134,
+            "1": 428,
+            "2": 206,
+            "3-4": 264
+          }
+        },
+        "l": {
+          "original_censored_runs": 16,
+          "predicted_censored_runs": 49,
+          "original_complete_runs": 571,
+          "predicted_complete_runs": 2498,
+          "by_original_duration": {
+            "1": {
+              "runs": 3,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 16,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 77,
+              "press_exact": 4,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 116,
+              "press_exact": 22,
+              "release_exact": 6,
+              "both_boundaries_exact": 2,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 144,
+              "press_exact": 29,
+              "release_exact": 9,
+              "both_boundaries_exact": 4,
+              "exact_run": 4
+            },
+            "17+": {
+              "runs": 215,
+              "press_exact": 30,
+              "release_exact": 12,
+              "both_boundaries_exact": 3,
+              "exact_run": 2
+            }
+          },
+          "predicted_duration_histogram": {
+            "3-4": 336,
+            "2": 278,
+            "17+": 489,
+            "1": 559,
+            "9-16": 466,
+            "5-8": 370
+          }
+        },
+        "a": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 23,
+          "original_complete_runs": 514,
+          "predicted_complete_runs": 2059,
+          "by_original_duration": {
+            "1": {
+              "runs": 11,
+              "press_exact": 2,
+              "release_exact": 2,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "2": {
+              "runs": 21,
+              "press_exact": 1,
+              "release_exact": 1,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "3-4": {
+              "runs": 109,
+              "press_exact": 8,
+              "release_exact": 5,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 191,
+              "press_exact": 17,
+              "release_exact": 4,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 76,
+              "press_exact": 4,
+              "release_exact": 3,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 106,
+              "press_exact": 24,
+              "release_exact": 5,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "1": 502,
+            "9-16": 336,
+            "17+": 443,
+            "2": 210,
+            "3-4": 275,
+            "5-8": 293
+          }
+        },
+        "b": {
+          "original_censored_runs": 20,
+          "predicted_censored_runs": 17,
+          "original_complete_runs": 1014,
+          "predicted_complete_runs": 1800,
+          "by_original_duration": {
+            "1": {
+              "runs": 6,
+              "press_exact": 3,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 27,
+              "press_exact": 10,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 269,
+              "press_exact": 91,
+              "release_exact": 10,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "5-8": {
+              "runs": 396,
+              "press_exact": 97,
+              "release_exact": 22,
+              "both_boundaries_exact": 5,
+              "exact_run": 4
+            },
+            "9-16": {
+              "runs": 167,
+              "press_exact": 46,
+              "release_exact": 5,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "17+": {
+              "runs": 149,
+              "press_exact": 39,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "5-8": 305,
+            "17+": 300,
+            "1": 492,
+            "9-16": 290,
+            "2": 188,
+            "3-4": 225
+          }
+        },
+        "x": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 26,
+          "original_complete_runs": 858,
+          "predicted_complete_runs": 2031,
+          "by_original_duration": {
+            "1": {
+              "runs": 68,
+              "press_exact": 18,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 153,
+              "press_exact": 50,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 194,
+              "press_exact": 35,
+              "release_exact": 12,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 285,
+              "press_exact": 52,
+              "release_exact": 19,
+              "both_boundaries_exact": 8,
+              "exact_run": 7
+            },
+            "9-16": {
+              "runs": 122,
+              "press_exact": 18,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 36,
+              "press_exact": 0,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 238,
+            "9-16": 272,
+            "2": 251,
+            "1": 518,
+            "5-8": 362,
+            "3-4": 390
+          }
+        },
+        "y": {
+          "original_censored_runs": 12,
+          "predicted_censored_runs": 41,
+          "original_complete_runs": 936,
+          "predicted_complete_runs": 3358,
+          "by_original_duration": {
+            "1": {
+              "runs": 34,
+              "press_exact": 12,
+              "release_exact": 3,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "2": {
+              "runs": 90,
+              "press_exact": 34,
+              "release_exact": 1,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "3-4": {
+              "runs": 167,
+              "press_exact": 43,
+              "release_exact": 7,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "5-8": {
+              "runs": 331,
+              "press_exact": 68,
+              "release_exact": 24,
+              "both_boundaries_exact": 6,
+              "exact_run": 6
+            },
+            "9-16": {
+              "runs": 261,
+              "press_exact": 60,
+              "release_exact": 27,
+              "both_boundaries_exact": 6,
+              "exact_run": 6
+            },
+            "17+": {
+              "runs": 53,
+              "press_exact": 12,
+              "release_exact": 3,
+              "both_boundaries_exact": 1,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 636,
+            "1": 829,
+            "5-8": 624,
+            "3-4": 540,
+            "2": 425,
+            "17+": 304
+          }
+        },
+        "start": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 2,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        }
+      },
+      "short_holds": {
+        "runs": 548,
+        "press_exact": 137,
+        "release_exact": 11,
+        "exact_run": 5
+      },
+      "predicted_one_frame_holds": 3693,
+      "reference_loss": 2.9734844641251996,
+      "decoder": "raw-held-zero-logit-v1",
+      "policy": "original full-rate frames/ports; original raw decoder and masks; resident tensor gathers; exact complete holds; no phase fitting"
+    },
+    "center": {
+      "button_metrics": {
+        "hold": {
+          "tp": 28518,
+          "fp": 93982,
+          "fn": 19312,
+          "f1": 0.3348558680209006
+        },
+        "press": {
+          "tp": 1021,
+          "fp": 13365,
+          "fn": 4431,
+          "f1": 0.1029337634842222
+        },
+        "release": {
+          "tp": 257,
+          "fp": 14126,
+          "fn": 5194,
+          "f1": 0.02591509529091459
+        }
+      },
+      "state_metrics": {
+        "axis_stick_x": {
+          "compared": 128150,
+          "correct": 61341,
+          "accuracy": 0.4786656262192743,
+          "neutral_baseline_accuracy": 0.4556301209520094
+        },
+        "axis_stick_y": {
+          "compared": 128150,
+          "correct": 88515,
+          "accuracy": 0.6907140070230199,
+          "neutral_baseline_accuracy": 0.6720327740928599
+        },
+        "axis_cstick_x": {
+          "compared": 128150,
+          "correct": 123679,
+          "accuracy": 0.9651111978150605,
+          "neutral_baseline_accuracy": 0.9655793991416309
+        },
+        "axis_cstick_y": {
+          "compared": 128150,
+          "correct": 121491,
+          "accuracy": 0.9480374561061257,
+          "neutral_baseline_accuracy": 0.9455715957861881
+        },
+        "axis_trigger": {
+          "compared": 128150,
+          "correct": 97273,
+          "accuracy": 0.7590557939914163,
+          "neutral_baseline_accuracy": 0.8433632461958642
+        },
+        "action": {
+          "compared": 128150,
+          "correct": 72174,
+          "accuracy": 0.5631993757315645
+        },
+        "airborne": {
+          "compared": 128150,
+          "correct": 120477,
+          "accuracy": 0.9401248536870854
+        }
+      },
+      "constraint_metrics": {
+        "invalid_button_frames": 0,
+        "invalid_trigger_frames": 0
+      },
+      "event_f1_mean": 0.1545682422653458,
+      "windows": 64075,
+      "image_seed_frames": 55,
+      "held_runs": {
+        "dleft": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dright": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "ddown": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dup": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "z": {
+          "original_censored_runs": 3,
+          "predicted_censored_runs": 15,
+          "original_complete_runs": 998,
+          "predicted_complete_runs": 1387,
+          "by_original_duration": {
+            "1": {
+              "runs": 24,
+              "press_exact": 1,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 91,
+              "press_exact": 4,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 444,
+              "press_exact": 30,
+              "release_exact": 9,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 368,
+              "press_exact": 17,
+              "release_exact": 14,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "9-16": {
+              "runs": 70,
+              "press_exact": 3,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 1,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 260,
+            "3-4": 187,
+            "2": 154,
+            "5-8": 219,
+            "9-16": 245,
+            "1": 322
+          }
+        },
+        "r": {
+          "original_censored_runs": 11,
+          "predicted_censored_runs": 27,
+          "original_complete_runs": 520,
+          "predicted_complete_runs": 1655,
+          "by_original_duration": {
+            "1": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 2,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 31,
+              "press_exact": 1,
+              "release_exact": 3,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 365,
+              "press_exact": 40,
+              "release_exact": 34,
+              "both_boundaries_exact": 4,
+              "exact_run": 4
+            },
+            "9-16": {
+              "runs": 107,
+              "press_exact": 9,
+              "release_exact": 5,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 13,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "1": 347,
+            "5-8": 323,
+            "9-16": 439,
+            "3-4": 259,
+            "2": 181,
+            "17+": 106
+          }
+        },
+        "l": {
+          "original_censored_runs": 16,
+          "predicted_censored_runs": 46,
+          "original_complete_runs": 571,
+          "predicted_complete_runs": 2331,
+          "by_original_duration": {
+            "1": {
+              "runs": 3,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 16,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 77,
+              "press_exact": 5,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 116,
+              "press_exact": 21,
+              "release_exact": 7,
+              "both_boundaries_exact": 2,
+              "exact_run": 1
+            },
+            "9-16": {
+              "runs": 144,
+              "press_exact": 29,
+              "release_exact": 8,
+              "both_boundaries_exact": 4,
+              "exact_run": 3
+            },
+            "17+": {
+              "runs": 215,
+              "press_exact": 33,
+              "release_exact": 11,
+              "both_boundaries_exact": 2,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "5-8": 367,
+            "17+": 479,
+            "1": 481,
+            "3-4": 322,
+            "2": 264,
+            "9-16": 418
+          }
+        },
+        "a": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 24,
+          "original_complete_runs": 514,
+          "predicted_complete_runs": 2091,
+          "by_original_duration": {
+            "1": {
+              "runs": 11,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 21,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 109,
+              "press_exact": 8,
+              "release_exact": 2,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 191,
+              "press_exact": 23,
+              "release_exact": 5,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 76,
+              "press_exact": 9,
+              "release_exact": 3,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "17+": {
+              "runs": 106,
+              "press_exact": 23,
+              "release_exact": 5,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 365,
+            "1": 470,
+            "5-8": 287,
+            "3-4": 284,
+            "2": 209,
+            "17+": 476
+          }
+        },
+        "b": {
+          "original_censored_runs": 20,
+          "predicted_censored_runs": 19,
+          "original_complete_runs": 1014,
+          "predicted_complete_runs": 1696,
+          "by_original_duration": {
+            "1": {
+              "runs": 6,
+              "press_exact": 2,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 27,
+              "press_exact": 10,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 269,
+              "press_exact": 91,
+              "release_exact": 8,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "5-8": {
+              "runs": 396,
+              "press_exact": 106,
+              "release_exact": 14,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "9-16": {
+              "runs": 167,
+              "press_exact": 48,
+              "release_exact": 8,
+              "both_boundaries_exact": 2,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 149,
+              "press_exact": 39,
+              "release_exact": 5,
+              "both_boundaries_exact": 1,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "5-8": 316,
+            "17+": 281,
+            "3-4": 239,
+            "9-16": 279,
+            "2": 163,
+            "1": 418
+          }
+        },
+        "x": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 26,
+          "original_complete_runs": 858,
+          "predicted_complete_runs": 2020,
+          "by_original_duration": {
+            "1": {
+              "runs": 68,
+              "press_exact": 21,
+              "release_exact": 1,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "2": {
+              "runs": 153,
+              "press_exact": 55,
+              "release_exact": 3,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "3-4": {
+              "runs": 194,
+              "press_exact": 37,
+              "release_exact": 11,
+              "both_boundaries_exact": 4,
+              "exact_run": 4
+            },
+            "5-8": {
+              "runs": 285,
+              "press_exact": 67,
+              "release_exact": 24,
+              "both_boundaries_exact": 11,
+              "exact_run": 9
+            },
+            "9-16": {
+              "runs": 122,
+              "press_exact": 22,
+              "release_exact": 2,
+              "both_boundaries_exact": 1,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 36,
+              "press_exact": 3,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "2": 282,
+            "17+": 215,
+            "9-16": 295,
+            "1": 487,
+            "3-4": 375,
+            "5-8": 366
+          }
+        },
+        "y": {
+          "original_censored_runs": 12,
+          "predicted_censored_runs": 36,
+          "original_complete_runs": 936,
+          "predicted_complete_runs": 3103,
+          "by_original_duration": {
+            "1": {
+              "runs": 34,
+              "press_exact": 9,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 90,
+              "press_exact": 34,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 167,
+              "press_exact": 52,
+              "release_exact": 4,
+              "both_boundaries_exact": 1,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 331,
+              "press_exact": 76,
+              "release_exact": 30,
+              "both_boundaries_exact": 8,
+              "exact_run": 7
+            },
+            "9-16": {
+              "runs": 261,
+              "press_exact": 70,
+              "release_exact": 25,
+              "both_boundaries_exact": 9,
+              "exact_run": 7
+            },
+            "17+": {
+              "runs": 53,
+              "press_exact": 12,
+              "release_exact": 3,
+              "both_boundaries_exact": 1,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 615,
+            "1": 740,
+            "2": 397,
+            "3-4": 486,
+            "5-8": 594,
+            "17+": 271
+          }
+        },
+        "start": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 2,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        }
+      },
+      "short_holds": {
+        "runs": 548,
+        "press_exact": 139,
+        "release_exact": 11,
+        "exact_run": 3
+      },
+      "predicted_one_frame_holds": 3265,
+      "reference_loss": 2.866173150322654,
+      "decoder": "raw-held-zero-logit-v1",
+      "policy": "original full-rate frames/ports; original raw decoder and masks; resident tensor gathers; exact complete holds; no phase fitting"
+    },
+    "ordered": {
+      "button_metrics": {
+        "hold": {
+          "tp": 28505,
+          "fp": 94623,
+          "fn": 19325,
+          "f1": 0.3334737186911405
+        },
+        "press": {
+          "tp": 999,
+          "fp": 13196,
+          "fn": 4453,
+          "f1": 0.1016949152542373
+        },
+        "release": {
+          "tp": 256,
+          "fp": 13933,
+          "fn": 5195,
+          "f1": 0.026069246435845215
+        }
+      },
+      "state_metrics": {
+        "axis_stick_x": {
+          "compared": 128150,
+          "correct": 61310,
+          "accuracy": 0.47842372220054624,
+          "neutral_baseline_accuracy": 0.4556301209520094
+        },
+        "axis_stick_y": {
+          "compared": 128150,
+          "correct": 88593,
+          "accuracy": 0.6913226687475614,
+          "neutral_baseline_accuracy": 0.6720327740928599
+        },
+        "axis_cstick_x": {
+          "compared": 128150,
+          "correct": 123654,
+          "accuracy": 0.9649161139289895,
+          "neutral_baseline_accuracy": 0.9655793991416309
+        },
+        "axis_cstick_y": {
+          "compared": 128150,
+          "correct": 121470,
+          "accuracy": 0.947873585641826,
+          "neutral_baseline_accuracy": 0.9455715957861881
+        },
+        "axis_trigger": {
+          "compared": 128150,
+          "correct": 97149,
+          "accuracy": 0.7580881779165041,
+          "neutral_baseline_accuracy": 0.8433632461958642
+        },
+        "action": {
+          "compared": 128150,
+          "correct": 72215,
+          "accuracy": 0.563519313304721
+        },
+        "airborne": {
+          "compared": 128150,
+          "correct": 120495,
+          "accuracy": 0.9402653140850565
+        }
+      },
+      "constraint_metrics": {
+        "invalid_button_frames": 0,
+        "invalid_trigger_frames": 0
+      },
+      "event_f1_mean": 0.15374596012707434,
+      "windows": 64075,
+      "image_seed_frames": 55,
+      "held_runs": {
+        "dleft": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dright": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "ddown": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dup": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "z": {
+          "original_censored_runs": 3,
+          "predicted_censored_runs": 14,
+          "original_complete_runs": 998,
+          "predicted_complete_runs": 1361,
+          "by_original_duration": {
+            "1": {
+              "runs": 24,
+              "press_exact": 1,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 91,
+              "press_exact": 5,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 444,
+              "press_exact": 21,
+              "release_exact": 7,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 368,
+              "press_exact": 16,
+              "release_exact": 10,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 70,
+              "press_exact": 3,
+              "release_exact": 3,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 1,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 253,
+            "2": 152,
+            "3-4": 173,
+            "5-8": 224,
+            "9-16": 246,
+            "1": 313
+          }
+        },
+        "r": {
+          "original_censored_runs": 11,
+          "predicted_censored_runs": 24,
+          "original_complete_runs": 520,
+          "predicted_complete_runs": 1611,
+          "by_original_duration": {
+            "1": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 2,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 31,
+              "press_exact": 3,
+              "release_exact": 3,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 365,
+              "press_exact": 37,
+              "release_exact": 28,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "9-16": {
+              "runs": 107,
+              "press_exact": 10,
+              "release_exact": 7,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 13,
+              "press_exact": 1,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "1": 336,
+            "5-8": 341,
+            "9-16": 424,
+            "2": 176,
+            "17+": 98,
+            "3-4": 236
+          }
+        },
+        "l": {
+          "original_censored_runs": 16,
+          "predicted_censored_runs": 46,
+          "original_complete_runs": 571,
+          "predicted_complete_runs": 2290,
+          "by_original_duration": {
+            "1": {
+              "runs": 3,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 16,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 77,
+              "press_exact": 4,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 116,
+              "press_exact": 20,
+              "release_exact": 10,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "9-16": {
+              "runs": 144,
+              "press_exact": 30,
+              "release_exact": 5,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "17+": {
+              "runs": 215,
+              "press_exact": 28,
+              "release_exact": 7,
+              "both_boundaries_exact": 2,
+              "exact_run": 1
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 491,
+            "1": 487,
+            "3-4": 321,
+            "2": 241,
+            "9-16": 406,
+            "5-8": 344
+          }
+        },
+        "a": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 26,
+          "original_complete_runs": 514,
+          "predicted_complete_runs": 2079,
+          "by_original_duration": {
+            "1": {
+              "runs": 11,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 21,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 109,
+              "press_exact": 7,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 191,
+              "press_exact": 20,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 76,
+              "press_exact": 8,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 106,
+              "press_exact": 22,
+              "release_exact": 9,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 484,
+            "9-16": 341,
+            "1": 487,
+            "3-4": 251,
+            "5-8": 303,
+            "2": 213
+          }
+        },
+        "b": {
+          "original_censored_runs": 20,
+          "predicted_censored_runs": 15,
+          "original_complete_runs": 1014,
+          "predicted_complete_runs": 1630,
+          "by_original_duration": {
+            "1": {
+              "runs": 6,
+              "press_exact": 3,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 27,
+              "press_exact": 8,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 269,
+              "press_exact": 92,
+              "release_exact": 10,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 396,
+              "press_exact": 109,
+              "release_exact": 18,
+              "both_boundaries_exact": 6,
+              "exact_run": 6
+            },
+            "9-16": {
+              "runs": 167,
+              "press_exact": 46,
+              "release_exact": 9,
+              "both_boundaries_exact": 3,
+              "exact_run": 2
+            },
+            "17+": {
+              "runs": 149,
+              "press_exact": 42,
+              "release_exact": 6,
+              "both_boundaries_exact": 2,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "5-8": 311,
+            "17+": 281,
+            "1": 401,
+            "9-16": 273,
+            "3-4": 226,
+            "2": 138
+          }
+        },
+        "x": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 29,
+          "original_complete_runs": 858,
+          "predicted_complete_runs": 1972,
+          "by_original_duration": {
+            "1": {
+              "runs": 68,
+              "press_exact": 19,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 153,
+              "press_exact": 64,
+              "release_exact": 4,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "3-4": {
+              "runs": 194,
+              "press_exact": 34,
+              "release_exact": 9,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "5-8": {
+              "runs": 285,
+              "press_exact": 65,
+              "release_exact": 22,
+              "both_boundaries_exact": 7,
+              "exact_run": 5
+            },
+            "9-16": {
+              "runs": 122,
+              "press_exact": 20,
+              "release_exact": 4,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 36,
+              "press_exact": 3,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "2": 270,
+            "17+": 240,
+            "9-16": 291,
+            "1": 457,
+            "3-4": 365,
+            "5-8": 349
+          }
+        },
+        "y": {
+          "original_censored_runs": 12,
+          "predicted_censored_runs": 37,
+          "original_complete_runs": 936,
+          "predicted_complete_runs": 3147,
+          "by_original_duration": {
+            "1": {
+              "runs": 34,
+              "press_exact": 10,
+              "release_exact": 2,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "2": {
+              "runs": 90,
+              "press_exact": 33,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 167,
+              "press_exact": 48,
+              "release_exact": 8,
+              "both_boundaries_exact": 2,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 331,
+              "press_exact": 76,
+              "release_exact": 33,
+              "both_boundaries_exact": 11,
+              "exact_run": 7
+            },
+            "9-16": {
+              "runs": 261,
+              "press_exact": 67,
+              "release_exact": 23,
+              "both_boundaries_exact": 7,
+              "exact_run": 6
+            },
+            "17+": {
+              "runs": 53,
+              "press_exact": 13,
+              "release_exact": 3,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 615,
+            "1": 763,
+            "3-4": 492,
+            "2": 386,
+            "5-8": 597,
+            "17+": 294
+          }
+        },
+        "start": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 2,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        }
+      },
+      "short_holds": {
+        "runs": 548,
+        "press_exact": 146,
+        "release_exact": 11,
+        "exact_run": 3
+      },
+      "predicted_one_frame_holds": 3244,
+      "reference_loss": 2.8660571445118297,
+      "decoder": "raw-held-zero-logit-v1",
+      "policy": "original full-rate frames/ports; original raw decoder and masks; resident tensor gathers; exact complete holds; no phase fitting"
+    }
+  },
+  "reference": {
+    "kind": "accepted-controller-on-common-root-centers",
+    "identity_checks_passed": true,
+    "dataset_sha256": "87bc799439048a4f0ec949799b22eefd5afc8f3e7222e2e869c7c5fea1f1ef2f",
+    "sources": {
+      "accepted": {
+        "config": "configs/vision-v100-controller.json",
+        "config_sha256": "2807d479ab1301380288ffbbb3d350bd69e0b679fda6e1eff0748438015b8e33",
+        "run_directory": ".docker-state/local/vision-training/controller-vision-v1",
+        "checkpoint": {
+          "file": "checkpoints/step-000007000-1792886201239937262.pt",
+          "sha256": "85485da065c9d565f1a19b81c5b0b111468ebb5505b13cbdc459dc01b79597f3",
+          "step": 7000
+        },
+        "contract_sha256": "6c2e250f336cf8dc69585655e840de2f71207da8fad598ddb1cc2f2d4d37bec6",
+        "validation_file": ".docker-state/local/vision-training/controller-vision-v1/validation.json",
+        "validation_sha256": "a686071978050048081ec373b37919b897ba562f720efc99863ada93d987e913"
+      },
+      "center": {
+        "config": "configs/vision-v100-root-tracking-center.json",
+        "config_sha256": "40e00e6957cbd4008ea2d6b392310632c315a64e54f678dc0bbeac949d4d2dc6",
+        "run_directory": ".docker-state/local/vision-training/root-tracking-center-v1",
+        "checkpoint": {
+          "file": "checkpoints/step-000020000-1793002594604346142.pt",
+          "sha256": "2dd186673b9fd4528984bab55ec34a62e4b280888d3f024a5b0ca0c5f706c679",
+          "step": 20000,
+          "validation_file": "checkpoints/step-000020000-1793002594604346142.json",
+          "validation_sha256": "527527eac24955742e1fd39ff30c8e1afeba69b7ca9d81bfc1d159128b3b8a9c"
+        },
+        "contract_sha256": "7170f02b847807928160ba83a3dd4fc84244e011f1e4805aa54c7874a155a532",
+        "validation_file": ".docker-state/local/vision-training/root-tracking-context-v1/validation.json",
+        "validation_sha256": "9025495bad507db8e959e6c70606cad83195dedf952b3e8674185f867bc234c8"
+      },
+      "ordered": {
+        "config": "configs/vision-v100-root-tracking-context.json",
+        "config_sha256": "b2066c615b7ffe01826e6d767e9e5ebd14bda9140495535761037ec34b7577bc",
+        "run_directory": ".docker-state/local/vision-training/root-tracking-context-v1",
+        "checkpoint": {
+          "file": "checkpoints/step-000020000-1793002975487444572.pt",
+          "sha256": "732879331af91c59f580188b399fcf3aecd0a6c444b09f85eb2d6f774f47db88",
+          "step": 20000,
+          "validation_file": "checkpoints/step-000020000-1793002975487444572.json",
+          "validation_sha256": "4e2c5dbd8cdce16923077a43360cd4cfc00bc5616c86b13769c94efab66b53b9"
+        },
+        "contract_sha256": "9b9a90cf2db5ca570847798784cc4a5c455b99a0994e9b5e241e81cd78ea46d5",
+        "validation_file": ".docker-state/local/vision-training/root-tracking-context-v1/validation.json",
+        "validation_sha256": "9025495bad507db8e959e6c70606cad83195dedf952b3e8674185f867bc234c8"
+      }
+    },
+    "metrics": {
+      "button_metrics": {
+        "hold": {
+          "tp": 27205,
+          "fp": 91967,
+          "fn": 20625,
+          "f1": 0.32580448138345647
+        },
+        "press": {
+          "tp": 895,
+          "fp": 13556,
+          "fn": 4557,
+          "f1": 0.0899361905240416
+        },
+        "release": {
+          "tp": 250,
+          "fp": 14184,
+          "fn": 5201,
+          "f1": 0.025144581342720643
+        }
+      },
+      "state_metrics": {
+        "axis_stick_x": {
+          "compared": 128150,
+          "correct": 61228,
+          "accuracy": 0.4777838470542333,
+          "neutral_baseline_accuracy": 0.4556301209520094
+        },
+        "axis_stick_y": {
+          "compared": 128150,
+          "correct": 88187,
+          "accuracy": 0.6881545064377682,
+          "neutral_baseline_accuracy": 0.6720327740928599
+        },
+        "axis_cstick_x": {
+          "compared": 128150,
+          "correct": 123635,
+          "accuracy": 0.9647678501755755,
+          "neutral_baseline_accuracy": 0.9655793991416309
+        },
+        "axis_cstick_y": {
+          "compared": 128150,
+          "correct": 121209,
+          "accuracy": 0.9458369098712446,
+          "neutral_baseline_accuracy": 0.9455715957861881
+        },
+        "axis_trigger": {
+          "compared": 128150,
+          "correct": 97994,
+          "accuracy": 0.7646820132657043,
+          "neutral_baseline_accuracy": 0.8433632461958642
+        },
+        "action": {
+          "compared": 128150,
+          "correct": 67599,
+          "accuracy": 0.5274990245805696
+        },
+        "airborne": {
+          "compared": 128150,
+          "correct": 119184,
+          "accuracy": 0.9300351150994928
+        }
+      },
+      "constraint_metrics": {
+        "invalid_button_frames": 0,
+        "invalid_trigger_frames": 0
+      },
+      "event_f1_mean": 0.14696175108340623,
+      "windows": 64075,
+      "image_seed_frames": 55,
+      "held_runs": {
+        "dleft": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dright": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "ddown": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "dup": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 0,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        },
+        "z": {
+          "original_censored_runs": 3,
+          "predicted_censored_runs": 10,
+          "original_complete_runs": 998,
+          "predicted_complete_runs": 1035,
+          "by_original_duration": {
+            "1": {
+              "runs": 24,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 91,
+              "press_exact": 3,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 444,
+              "press_exact": 19,
+              "release_exact": 12,
+              "both_boundaries_exact": 2,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 368,
+              "press_exact": 10,
+              "release_exact": 26,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "9-16": {
+              "runs": 70,
+              "press_exact": 1,
+              "release_exact": 4,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 1,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 165,
+            "2": 107,
+            "1": 259,
+            "3-4": 151,
+            "5-8": 167,
+            "9-16": 186
+          }
+        },
+        "r": {
+          "original_censored_runs": 11,
+          "predicted_censored_runs": 28,
+          "original_complete_runs": 520,
+          "predicted_complete_runs": 1873,
+          "by_original_duration": {
+            "1": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 31,
+              "press_exact": 1,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 365,
+              "press_exact": 33,
+              "release_exact": 29,
+              "both_boundaries_exact": 4,
+              "exact_run": 4
+            },
+            "9-16": {
+              "runs": 107,
+              "press_exact": 7,
+              "release_exact": 7,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "17+": {
+              "runs": 13,
+              "press_exact": 1,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 471,
+            "5-8": 390,
+            "17+": 124,
+            "1": 415,
+            "3-4": 270,
+            "2": 203
+          }
+        },
+        "l": {
+          "original_censored_runs": 16,
+          "predicted_censored_runs": 43,
+          "original_complete_runs": 571,
+          "predicted_complete_runs": 2373,
+          "by_original_duration": {
+            "1": {
+              "runs": 3,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 16,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 77,
+              "press_exact": 5,
+              "release_exact": 1,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 116,
+              "press_exact": 13,
+              "release_exact": 4,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 144,
+              "press_exact": 29,
+              "release_exact": 7,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "17+": {
+              "runs": 215,
+              "press_exact": 27,
+              "release_exact": 8,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "3-4": 301,
+            "2": 232,
+            "17+": 479,
+            "1": 561,
+            "5-8": 356,
+            "9-16": 444
+          }
+        },
+        "a": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 19,
+          "original_complete_runs": 514,
+          "predicted_complete_runs": 1645,
+          "by_original_duration": {
+            "1": {
+              "runs": 11,
+              "press_exact": 1,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 21,
+              "press_exact": 0,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 109,
+              "press_exact": 4,
+              "release_exact": 3,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 191,
+              "press_exact": 19,
+              "release_exact": 5,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 76,
+              "press_exact": 10,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 106,
+              "press_exact": 19,
+              "release_exact": 6,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            }
+          },
+          "predicted_duration_histogram": {
+            "9-16": 297,
+            "17+": 383,
+            "1": 319,
+            "5-8": 243,
+            "2": 169,
+            "3-4": 234
+          }
+        },
+        "b": {
+          "original_censored_runs": 20,
+          "predicted_censored_runs": 23,
+          "original_complete_runs": 1014,
+          "predicted_complete_runs": 1960,
+          "by_original_duration": {
+            "1": {
+              "runs": 6,
+              "press_exact": 3,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 27,
+              "press_exact": 13,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 269,
+              "press_exact": 89,
+              "release_exact": 8,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "5-8": {
+              "runs": 396,
+              "press_exact": 96,
+              "release_exact": 18,
+              "both_boundaries_exact": 5,
+              "exact_run": 5
+            },
+            "9-16": {
+              "runs": 167,
+              "press_exact": 36,
+              "release_exact": 9,
+              "both_boundaries_exact": 3,
+              "exact_run": 3
+            },
+            "17+": {
+              "runs": 149,
+              "press_exact": 41,
+              "release_exact": 2,
+              "both_boundaries_exact": 1,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "1": 494,
+            "3-4": 268,
+            "17+": 308,
+            "9-16": 304,
+            "5-8": 349,
+            "2": 237
+          }
+        },
+        "x": {
+          "original_censored_runs": 5,
+          "predicted_censored_runs": 20,
+          "original_complete_runs": 858,
+          "predicted_complete_runs": 1942,
+          "by_original_duration": {
+            "1": {
+              "runs": 68,
+              "press_exact": 24,
+              "release_exact": 1,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "2": {
+              "runs": 153,
+              "press_exact": 50,
+              "release_exact": 3,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "3-4": {
+              "runs": 194,
+              "press_exact": 40,
+              "release_exact": 11,
+              "both_boundaries_exact": 2,
+              "exact_run": 2
+            },
+            "5-8": {
+              "runs": 285,
+              "press_exact": 60,
+              "release_exact": 16,
+              "both_boundaries_exact": 6,
+              "exact_run": 3
+            },
+            "9-16": {
+              "runs": 122,
+              "press_exact": 21,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 36,
+              "press_exact": 1,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "17+": 195,
+            "2": 286,
+            "5-8": 366,
+            "1": 467,
+            "9-16": 259,
+            "3-4": 369
+          }
+        },
+        "y": {
+          "original_censored_runs": 12,
+          "predicted_censored_runs": 42,
+          "original_complete_runs": 936,
+          "predicted_complete_runs": 3516,
+          "by_original_duration": {
+            "1": {
+              "runs": 34,
+              "press_exact": 10,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 90,
+              "press_exact": 33,
+              "release_exact": 1,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 167,
+              "press_exact": 43,
+              "release_exact": 5,
+              "both_boundaries_exact": 1,
+              "exact_run": 1
+            },
+            "5-8": {
+              "runs": 331,
+              "press_exact": 64,
+              "release_exact": 19,
+              "both_boundaries_exact": 5,
+              "exact_run": 4
+            },
+            "9-16": {
+              "runs": 261,
+              "press_exact": 53,
+              "release_exact": 29,
+              "both_boundaries_exact": 8,
+              "exact_run": 6
+            },
+            "17+": {
+              "runs": 53,
+              "press_exact": 8,
+              "release_exact": 2,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {
+            "2": 432,
+            "9-16": 651,
+            "1": 929,
+            "17+": 320,
+            "5-8": 650,
+            "3-4": 534
+          }
+        },
+        "start": {
+          "original_censored_runs": 0,
+          "predicted_censored_runs": 0,
+          "original_complete_runs": 2,
+          "predicted_complete_runs": 0,
+          "by_original_duration": {
+            "1": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "2": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "3-4": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "5-8": {
+              "runs": 2,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "9-16": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            },
+            "17+": {
+              "runs": 0,
+              "press_exact": 0,
+              "release_exact": 0,
+              "both_boundaries_exact": 0,
+              "exact_run": 0
+            }
+          },
+          "predicted_duration_histogram": {}
+        }
+      },
+      "short_holds": {
+        "runs": 548,
+        "press_exact": 138,
+        "release_exact": 10,
+        "exact_run": 3
+      },
+      "predicted_one_frame_holds": 3444,
+      "reference_loss": 3.0514410495758058,
+      "decoder": "raw-held-zero-logit-v1",
+      "policy": "original full-rate frames/ports; original raw decoder and masks; resident tensor gathers; exact complete holds; no phase fitting"
+    },
+    "common_center_keys_sha256": {
+      "train": "c9d9c671afc334ae694cec9d44179ad3f9371514aaf73d2310ecc1b8119ba904",
+      "validation": "2b4d0d491388fc64e68dd4f6afd41be2eee48cc65aece260bfd5bc4100c42950"
+    },
+    "evaluation_batch_size": 128,
+    "final_test_matches_opened": 0
+  },
+  "training_completed": true,
+  "checks": {
+    "reference_mean": false,
+    "reference_release": false,
+    "reference_hold": true,
+    "reference_press": true,
+    "reference_short_holds": false,
+    "reference_one_frame_holds": false,
+    "reference_axis_stick_x": true,
+    "reference_axis_stick_y": true,
+    "reference_axis_cstick_x": true,
+    "reference_axis_cstick_y": true,
+    "reference_axis_trigger": true,
+    "global_mean": true,
+    "global_release": false,
+    "global_hold": true,
+    "global_press": true,
+    "global_short_holds": false,
+    "global_one_frame_holds": false,
+    "global_axis_stick_x": true,
+    "global_axis_stick_y": true,
+    "global_axis_cstick_x": true,
+    "global_axis_cstick_y": true,
+    "global_axis_trigger": true,
+    "center_mean": false,
+    "center_release": true,
+    "center_hold": true,
+    "center_press": false,
+    "center_short_holds": true,
+    "center_one_frame_holds": true,
+    "center_axis_stick_x": true,
+    "center_axis_stick_y": true,
+    "center_axis_cstick_x": true,
+    "center_axis_cstick_y": true,
+    "center_axis_trigger": true,
+    "all_arm_constraints": true,
+    "raw_decoders": true
+  },
+  "mean_gains": {
+    "reference": 0.00678420904366811,
+    "global": 0.006154413167235362,
+    "center": -0.0008222821382714574
+  },
+  "criteria_met": false,
+  "development_controller_gain": false,
+  "automatic_controller_promotion": false,
+  "reconstructed_gameplay_validated": false,
+  "final_test_matches_opened": 0,
+  "evaluation_steps": [
+    0,
+    1000,
+    2000,
+    3000,
+    4000,
+    5000,
+    6000,
+    7000,
+    8000,
+    9000,
+    10000
+  ],
+  "dataset_sha256": "87bc799439048a4f0ec949799b22eefd5afc8f3e7222e2e869c7c5fea1f1ef2f",
+  "prior": {
+    "config": "configs/vision-v100-root-controller-context.json",
+    "config_sha256": "1879d39d2e1b5330536c547f51c6a9cbc23709c866a613fc3971e7343ed14322",
+    "dataset": ".docker-state/local/root-controller-context-v1/dataset.json",
+    "dataset_sha256": "68c14cfc59a2751b0d792f4732f0fc24dc4bfaf6ef0da3f5aa64f8289b728616",
+    "run_directory": ".docker-state/local/vision-training/root-controller-context-v1",
+    "checkpoint": {
+      "file": "checkpoints/step-000010000-1793039368062350040.pt",
+      "sha256": "8f4b6037402944ee23e25456184344ce4eaadf45dc60b78787055276b10f9988",
+      "step": 10000,
+      "validation_file": "checkpoints/step-000010000-1793039368062350040.json",
+      "validation_sha256": "73e0ee54af0453c0aec7ea1d04da02be1bfb71872b1ca58485b4cab179df550f"
+    },
+    "result_file": ".docker-state/local/vision-training/root-controller-context-v1/experiment-result.json",
+    "result_sha256": "a467cc522edb4e046495d4e384e45105ff3ecb2b2b6070077290d81b19e6f7cc",
+    "validation_file": ".docker-state/local/vision-training/root-controller-context-v1/validation.json",
+    "validation_sha256": "47c605850d895f88ca46331b784a4530083c317377b4d2c1230fcfb1ff3c8a9c",
+    "evaluation_records": {
+      "0": "bc9b89e01a7c6f41513860b252b524c917ba47fd7fd9d87e77bba150f23b1fe0",
+      "1000": "f5a388fae46ae46fe7e1c4f32b710b42fe2162d52e4b5fc52675c68ecd809d53",
+      "2000": "411056d43f201bd09d3d0c49ddb07416125e2c4d243764ee7a6ff12a6c196f4e",
+      "3000": "3ed998c3f4c29e332b63d8d353f1db2d27abfbbe526ce0a6d3682159bce05d00",
+      "4000": "dc4345f618778ee396c73dda335eebc622b42875f8d811fbbece4ec92d325a62",
+      "5000": "ac627787c5b1c3d04eafeab8f612a888b6afcbe7e1658d0c2ce930f8af6fb449",
+      "6000": "48b8ac0bbad70a5cd21094684da4354265728ebdeea876172ace100fe9148425",
+      "7000": "b1e9833ec3cbfd7064c5e7e631531105d7e819c0edea16d422b401707e07cbee",
+      "8000": "b47f2b49ebff9daab203d7cc0b314883e980b2a49c6123cdcb152d65a99b5127",
+      "9000": "674ce5dc121442128f2e38ff29bbdb54d52e1b5a815eae06931b804d19d1f17c",
+      "10000": "73e0ee54af0453c0aec7ea1d04da02be1bfb71872b1ca58485b4cab179df550f"
+    }
+  }
+}

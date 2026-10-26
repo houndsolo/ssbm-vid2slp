@@ -1,0 +1,442 @@
+{
+  "global": {
+    "schema": 1,
+    "kind": "exact-frame-controller-prediction-score",
+    "replay_sha256": "04f3877e9e8d946fb5644394558270f5fcac783c936e62817fb94bab6c9f9590",
+    "checkpoint_sha256": "f65225d648b29a2ea37b02a64ef7f05e4876ffb8c59b1ee1f1d551080df11bee",
+    "training_regression": false,
+    "player_frames": 2330,
+    "prediction_interval": [
+      1281,
+      2445
+    ],
+    "slot_ports": [
+      0,
+      1
+    ],
+    "button_metrics": {
+      "hold": {
+        "tp": 713,
+        "fp": 1782,
+        "fn": 402,
+        "compared": 27960,
+        "positive_labels": 1115,
+        "f1": 0.39501385041551246,
+        "precision": 0.28577154308617236,
+        "recall": 0.6394618834080718,
+        "all_released_baseline_f1": 0.0
+      },
+      "press": {
+        "tp": 22,
+        "fp": 268,
+        "fn": 83,
+        "compared": 27960,
+        "positive_labels": 105,
+        "f1": 0.11139240506329114,
+        "precision": 0.07586206896551724,
+        "recall": 0.20952380952380953,
+        "all_released_baseline_f1": 0.0
+      },
+      "release": {
+        "tp": 6,
+        "fp": 286,
+        "fn": 100,
+        "compared": 27960,
+        "positive_labels": 106,
+        "f1": 0.03015075376884422,
+        "precision": 0.02054794520547945,
+        "recall": 0.05660377358490566,
+        "all_released_baseline_f1": 0.0
+      }
+    },
+    "axis_metrics": {
+      "stick_x": {
+        "compared": 2330,
+        "correct": 854,
+        "accuracy": 0.3665236051502146,
+        "mae": 0.6460622308208196,
+        "rmse": 0.8918527265599684,
+        "neutral_baseline_accuracy": 0.34291845493562234
+      },
+      "stick_y": {
+        "compared": 2330,
+        "correct": 1494,
+        "accuracy": 0.6412017167381975,
+        "mae": 0.2633261793928597,
+        "rmse": 0.4730652925541114,
+        "neutral_baseline_accuracy": 0.6377682403433477
+      },
+      "cstick_x": {
+        "compared": 2330,
+        "correct": 2206,
+        "accuracy": 0.9467811158798283,
+        "mae": 0.045810085957142414,
+        "rmse": 0.20771903418243898,
+        "neutral_baseline_accuracy": 0.9489270386266094
+      },
+      "cstick_y": {
+        "compared": 2330,
+        "correct": 2186,
+        "accuracy": 0.9381974248927039,
+        "mae": 0.059184549422734795,
+        "rmse": 0.2399970383977637,
+        "neutral_baseline_accuracy": 0.9420600858369099
+      },
+      "trigger": {
+        "compared": 2330,
+        "correct": 1881,
+        "accuracy": 0.8072961373390558,
+        "mae": 0.15452329873271253,
+        "rmse": 0.370601182335251,
+        "neutral_baseline_accuracy": 0.869098712446352
+      }
+    },
+    "state_metrics": {
+      "action": {
+        "compared": 2330,
+        "correct": 1217,
+        "accuracy": 0.5223175965665237
+      },
+      "airborne": {
+        "compared": 2330,
+        "correct": 2233,
+        "accuracy": 0.9583690987124464
+      }
+    },
+    "button_decoding": "held-state-difference-v1",
+    "policy": "post-prediction labels only; exact signed frame and physical port; masks exclude unknowns; declared label-free button sequence decoder; fixed phase; no lag search or retraining",
+    "native_vi_adapter_verified": false,
+    "generated_replay_validated": false,
+    "generalization_established": false
+  },
+  "center": {
+    "schema": 1,
+    "kind": "exact-frame-controller-prediction-score",
+    "replay_sha256": "04f3877e9e8d946fb5644394558270f5fcac783c936e62817fb94bab6c9f9590",
+    "checkpoint_sha256": "f65225d648b29a2ea37b02a64ef7f05e4876ffb8c59b1ee1f1d551080df11bee",
+    "training_regression": false,
+    "player_frames": 2330,
+    "prediction_interval": [
+      1281,
+      2445
+    ],
+    "slot_ports": [
+      0,
+      1
+    ],
+    "button_metrics": {
+      "hold": {
+        "tp": 677,
+        "fp": 1667,
+        "fn": 438,
+        "compared": 27960,
+        "positive_labels": 1115,
+        "f1": 0.39144261347210174,
+        "precision": 0.2888225255972696,
+        "recall": 0.6071748878923767,
+        "all_released_baseline_f1": 0.0
+      },
+      "press": {
+        "tp": 21,
+        "fp": 215,
+        "fn": 84,
+        "compared": 27960,
+        "positive_labels": 105,
+        "f1": 0.12316715542521994,
+        "precision": 0.08898305084745763,
+        "recall": 0.2,
+        "all_released_baseline_f1": 0.0
+      },
+      "release": {
+        "tp": 7,
+        "fp": 231,
+        "fn": 99,
+        "compared": 27960,
+        "positive_labels": 106,
+        "f1": 0.040697674418604654,
+        "precision": 0.029411764705882353,
+        "recall": 0.0660377358490566,
+        "all_released_baseline_f1": 0.0
+      }
+    },
+    "axis_metrics": {
+      "stick_x": {
+        "compared": 2330,
+        "correct": 869,
+        "accuracy": 0.37296137339055796,
+        "mae": 0.6348283251083972,
+        "rmse": 0.8830798002168336,
+        "neutral_baseline_accuracy": 0.34291845493562234
+      },
+      "stick_y": {
+        "compared": 2330,
+        "correct": 1492,
+        "accuracy": 0.640343347639485,
+        "mae": 0.259624462705825,
+        "rmse": 0.46178157128096764,
+        "neutral_baseline_accuracy": 0.6377682403433477
+      },
+      "cstick_x": {
+        "compared": 2330,
+        "correct": 2210,
+        "accuracy": 0.9484978540772532,
+        "mae": 0.04409334775971752,
+        "rmse": 0.2035447345530224,
+        "neutral_baseline_accuracy": 0.9489270386266094
+      },
+      "cstick_y": {
+        "compared": 2330,
+        "correct": 2188,
+        "accuracy": 0.9390557939914163,
+        "mae": 0.05832618032402235,
+        "rmse": 0.23820203471210155,
+        "neutral_baseline_accuracy": 0.9420600858369099
+      },
+      "trigger": {
+        "compared": 2330,
+        "correct": 1901,
+        "accuracy": 0.8158798283261802,
+        "mae": 0.14351471505195798,
+        "rmse": 0.3542670004343589,
+        "neutral_baseline_accuracy": 0.869098712446352
+      }
+    },
+    "state_metrics": {
+      "action": {
+        "compared": 2330,
+        "correct": 1308,
+        "accuracy": 0.5613733905579399
+      },
+      "airborne": {
+        "compared": 2330,
+        "correct": 2250,
+        "accuracy": 0.9656652360515021
+      }
+    },
+    "button_decoding": "held-state-difference-v1",
+    "policy": "post-prediction labels only; exact signed frame and physical port; masks exclude unknowns; declared label-free button sequence decoder; fixed phase; no lag search or retraining",
+    "native_vi_adapter_verified": false,
+    "generated_replay_validated": false,
+    "generalization_established": false
+  },
+  "ordered": {
+    "schema": 1,
+    "kind": "exact-frame-controller-prediction-score",
+    "replay_sha256": "04f3877e9e8d946fb5644394558270f5fcac783c936e62817fb94bab6c9f9590",
+    "checkpoint_sha256": "f65225d648b29a2ea37b02a64ef7f05e4876ffb8c59b1ee1f1d551080df11bee",
+    "training_regression": false,
+    "player_frames": 2330,
+    "prediction_interval": [
+      1281,
+      2445
+    ],
+    "slot_ports": [
+      0,
+      1
+    ],
+    "button_metrics": {
+      "hold": {
+        "tp": 658,
+        "fp": 1668,
+        "fn": 457,
+        "compared": 27960,
+        "positive_labels": 1115,
+        "f1": 0.3824469630921244,
+        "precision": 0.2828890799656062,
+        "recall": 0.590134529147982,
+        "all_released_baseline_f1": 0.0
+      },
+      "press": {
+        "tp": 20,
+        "fp": 223,
+        "fn": 85,
+        "compared": 27960,
+        "positive_labels": 105,
+        "f1": 0.11494252873563218,
+        "precision": 0.0823045267489712,
+        "recall": 0.19047619047619047,
+        "all_released_baseline_f1": 0.0
+      },
+      "release": {
+        "tp": 8,
+        "fp": 237,
+        "fn": 98,
+        "compared": 27960,
+        "positive_labels": 106,
+        "f1": 0.045584045584045586,
+        "precision": 0.0326530612244898,
+        "recall": 0.07547169811320754,
+        "all_released_baseline_f1": 0.0
+      }
+    },
+    "axis_metrics": {
+      "stick_x": {
+        "compared": 2330,
+        "correct": 870,
+        "accuracy": 0.37339055793991416,
+        "mae": 0.6393669516871415,
+        "rmse": 0.8911290867549522,
+        "neutral_baseline_accuracy": 0.34291845493562234
+      },
+      "stick_y": {
+        "compared": 2330,
+        "correct": 1489,
+        "accuracy": 0.6390557939914163,
+        "mae": 0.26241416225105907,
+        "rmse": 0.46570617456592805,
+        "neutral_baseline_accuracy": 0.6377682403433477
+      },
+      "cstick_x": {
+        "compared": 2330,
+        "correct": 2209,
+        "accuracy": 0.948068669527897,
+        "mae": 0.04452253230907375,
+        "rmse": 0.20459629398798157,
+        "neutral_baseline_accuracy": 0.9489270386266094
+      },
+      "cstick_y": {
+        "compared": 2330,
+        "correct": 2185,
+        "accuracy": 0.9377682403433476,
+        "mae": 0.05961373397209102,
+        "rmse": 0.24088952444856107,
+        "neutral_baseline_accuracy": 0.9420600858369099
+      },
+      "trigger": {
+        "compared": 2330,
+        "correct": 1895,
+        "accuracy": 0.8133047210300429,
+        "mae": 0.1458001227721636,
+        "rmse": 0.3573560370394956,
+        "neutral_baseline_accuracy": 0.869098712446352
+      }
+    },
+    "state_metrics": {
+      "action": {
+        "compared": 2330,
+        "correct": 1291,
+        "accuracy": 0.5540772532188841
+      },
+      "airborne": {
+        "compared": 2330,
+        "correct": 2247,
+        "accuracy": 0.9643776824034335
+      }
+    },
+    "button_decoding": "held-state-difference-v1",
+    "policy": "post-prediction labels only; exact signed frame and physical port; masks exclude unknowns; declared label-free button sequence decoder; fixed phase; no lag search or retraining",
+    "native_vi_adapter_verified": false,
+    "generated_replay_validated": false,
+    "generalization_established": false
+  },
+  "accepted": {
+    "schema": 1,
+    "kind": "exact-frame-controller-prediction-score",
+    "replay_sha256": "04f3877e9e8d946fb5644394558270f5fcac783c936e62817fb94bab6c9f9590",
+    "checkpoint_sha256": "85485da065c9d565f1a19b81c5b0b111468ebb5505b13cbdc459dc01b79597f3",
+    "training_regression": false,
+    "player_frames": 2330,
+    "prediction_interval": [
+      1281,
+      2445
+    ],
+    "slot_ports": [
+      0,
+      1
+    ],
+    "button_metrics": {
+      "hold": {
+        "tp": 610,
+        "fp": 1600,
+        "fn": 505,
+        "compared": 27960,
+        "positive_labels": 1115,
+        "f1": 0.3669172932330827,
+        "precision": 0.27601809954751133,
+        "recall": 0.547085201793722,
+        "all_released_baseline_f1": 0.0
+      },
+      "press": {
+        "tp": 15,
+        "fp": 240,
+        "fn": 90,
+        "compared": 27960,
+        "positive_labels": 105,
+        "f1": 0.08333333333333333,
+        "precision": 0.058823529411764705,
+        "recall": 0.14285714285714285,
+        "all_released_baseline_f1": 0.0
+      },
+      "release": {
+        "tp": 6,
+        "fp": 251,
+        "fn": 100,
+        "compared": 27960,
+        "positive_labels": 106,
+        "f1": 0.03305785123966942,
+        "precision": 0.023346303501945526,
+        "recall": 0.05660377358490566,
+        "all_released_baseline_f1": 0.0
+      }
+    },
+    "axis_metrics": {
+      "stick_x": {
+        "compared": 2330,
+        "correct": 865,
+        "accuracy": 0.37124463519313305,
+        "mae": 0.6519098698709144,
+        "rmse": 0.8988981975911513,
+        "neutral_baseline_accuracy": 0.34291845493562234
+      },
+      "stick_y": {
+        "compared": 2330,
+        "correct": 1474,
+        "accuracy": 0.632618025751073,
+        "mae": 0.26584763867149025,
+        "rmse": 0.45821425016378875,
+        "neutral_baseline_accuracy": 0.6377682403433477
+      },
+      "cstick_x": {
+        "compared": 2330,
+        "correct": 2209,
+        "accuracy": 0.948068669527897,
+        "mae": 0.04452253230907375,
+        "rmse": 0.20459629398798157,
+        "neutral_baseline_accuracy": 0.9489270386266094
+      },
+      "cstick_y": {
+        "compared": 2330,
+        "correct": 2156,
+        "accuracy": 0.9253218884120171,
+        "mae": 0.07206008590342149,
+        "rmse": 0.26546961204699926,
+        "neutral_baseline_accuracy": 0.9420600858369099
+      },
+      "trigger": {
+        "compared": 2330,
+        "correct": 1899,
+        "accuracy": 0.8150214592274678,
+        "mae": 0.15425505833820213,
+        "rmse": 0.37467727210267593,
+        "neutral_baseline_accuracy": 0.869098712446352
+      }
+    },
+    "state_metrics": {
+      "action": {
+        "compared": 2330,
+        "correct": 1212,
+        "accuracy": 0.5201716738197425
+      },
+      "airborne": {
+        "compared": 2330,
+        "correct": 2229,
+        "accuracy": 0.9566523605150214
+      }
+    },
+    "button_decoding": "held-state-difference-v1",
+    "policy": "post-prediction labels only; exact signed frame and physical port; masks exclude unknowns; declared label-free button sequence decoder; fixed phase; no lag search or retraining",
+    "native_vi_adapter_verified": false,
+    "generated_replay_validated": false,
+    "generalization_established": false
+  }
+}

@@ -1,0 +1,273 @@
+{
+  "kind": "fixed-final-paired-root-tracking-result",
+  "center": {
+    "kind": "fixed-final-root-tracking-result",
+    "arm": "center",
+    "checkpoint": {
+      "file": "checkpoints/step-000020000-1793002594604346142.pt",
+      "sha256": "2dd186673b9fd4528984bab55ec34a62e4b280888d3f024a5b0ca0c5f706c679",
+      "step": 20000,
+      "validation_file": "checkpoints/step-000020000-1793002594604346142.json",
+      "validation_sha256": "527527eac24955742e1fd39ff30c8e1afeba69b7ca9d81bfc1d159128b3b8a9c"
+    },
+    "selection": "fixed-final",
+    "metrics": {
+      "train": {
+        "compared": 105597,
+        "mean_pixels": 5.866118240523639,
+        "median_pixels": 4.260298464550294,
+        "pck8": 0.8183660520658732,
+        "pck16": 0.9561919372709453,
+        "pck32": 0.9894978077028704,
+        "image_center_mean_pixels": 130.95367959897084,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 48354,
+          "material_alternative_assignment_frames": 13,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      },
+      "validation": {
+        "compared": 34513,
+        "mean_pixels": 19.061173505664243,
+        "median_pixels": 8.147883346358832,
+        "pck8": 0.49230724654478025,
+        "pck16": 0.7548460000579492,
+        "pck32": 0.8857531944484687,
+        "image_center_mean_pixels": 133.5453346141907,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 15560,
+          "material_alternative_assignment_frames": 261,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      }
+    },
+    "training_completed": true,
+    "training_sanity_passed": true,
+    "development_checks": {
+      "mean_pixel_error": true,
+      "pck32": true,
+      "image_center_baseline": true
+    },
+    "development_criteria_met": true,
+    "controller_improvement_established": false,
+    "reconstructed_gameplay_validated": false,
+    "automatic_controller_promotion": false,
+    "source_metrics": {
+      "train": {
+        "compared": 105597,
+        "mean_pixels": 6.859829801968757,
+        "median_pixels": 4.816630170349282,
+        "pck8": 0.7658077407502107,
+        "pck16": 0.939070238737843,
+        "pck32": 0.9839768175232252,
+        "image_center_mean_pixels": 130.95367959897084,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 48354,
+          "material_alternative_assignment_frames": 38,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      },
+      "validation": {
+        "compared": 34513,
+        "mean_pixels": 19.080200648084794,
+        "median_pixels": 8.138258790076515,
+        "pck8": 0.4925100686697766,
+        "pck16": 0.7547301017008085,
+        "pck32": 0.885492423144902,
+        "image_center_mean_pixels": 133.5453346141907,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 15560,
+          "material_alternative_assignment_frames": 259,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      }
+    },
+    "relative_mean_gain_over_source": 0.000997219199707966,
+    "dataset_sha256": "d5e9f2c46cf27f79a20f31b10d35469d1391816d1949e38f5d83dbf0c94fea5c",
+    "source_checkpoint_sha256": "803c8e0537c567175f07c8c34da8b24f2bc2839ad727769d9d1333d02d5242c9",
+    "common_center_keys_sha256": {
+      "train": "351bcf8796b531cad438edda591e7fb82a8f98fdb718d8974fbd4cd7ee5da33d",
+      "validation": "6e0dc80b750f3f5a4c22ea4ff351994363d2555617432eb7f14571ed31921b9c"
+    },
+    "evaluation_steps": [
+      0,
+      1000,
+      2000,
+      3000,
+      4000,
+      5000,
+      6000,
+      7000,
+      8000,
+      9000,
+      10000,
+      11000,
+      12000,
+      13000,
+      14000,
+      15000,
+      16000,
+      17000,
+      18000,
+      19000,
+      20000
+    ],
+    "final_test_matches_opened": 0,
+    "source_weights_updated": false,
+    "pixel_visibility_verified": false
+  },
+  "ordered": {
+    "kind": "fixed-final-root-tracking-result",
+    "arm": "ordered",
+    "checkpoint": {
+      "file": "checkpoints/step-000020000-1793002975487444572.pt",
+      "sha256": "732879331af91c59f580188b399fcf3aecd0a6c444b09f85eb2d6f774f47db88",
+      "step": 20000,
+      "validation_file": "checkpoints/step-000020000-1793002975487444572.json",
+      "validation_sha256": "4e2c5dbd8cdce16923077a43360cd4cfc00bc5616c86b13769c94efab66b53b9"
+    },
+    "selection": "fixed-final",
+    "metrics": {
+      "train": {
+        "compared": 105597,
+        "mean_pixels": 4.681772618409492,
+        "median_pixels": 3.7664992297827053,
+        "pck8": 0.8881502315406689,
+        "pck16": 0.9821680540166862,
+        "pck32": 0.9967328617290264,
+        "image_center_mean_pixels": 130.95367959897084,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 48354,
+          "material_alternative_assignment_frames": 1,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      },
+      "validation": {
+        "compared": 34513,
+        "mean_pixels": 17.427838738544864,
+        "median_pixels": 7.68269206354609,
+        "pck8": 0.5203256743835656,
+        "pck16": 0.7836467418074349,
+        "pck32": 0.9036594906267204,
+        "image_center_mean_pixels": 133.5453346141907,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 15560,
+          "material_alternative_assignment_frames": 215,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      }
+    },
+    "training_completed": true,
+    "training_sanity_passed": true,
+    "development_checks": {
+      "mean_pixel_error": true,
+      "pck32": true,
+      "image_center_baseline": true
+    },
+    "development_criteria_met": true,
+    "controller_improvement_established": false,
+    "reconstructed_gameplay_validated": false,
+    "automatic_controller_promotion": false,
+    "source_metrics": {
+      "train": {
+        "compared": 105597,
+        "mean_pixels": 6.859829801968757,
+        "median_pixels": 4.816630170349282,
+        "pck8": 0.7658077407502107,
+        "pck16": 0.939070238737843,
+        "pck32": 0.9839768175232252,
+        "image_center_mean_pixels": 130.95367959897084,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 48354,
+          "material_alternative_assignment_frames": 38,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      },
+      "validation": {
+        "compared": 34513,
+        "mean_pixels": 19.080200648084794,
+        "median_pixels": 8.138258790076515,
+        "pck8": 0.4925100686697766,
+        "pck16": 0.7547301017008085,
+        "pck32": 0.885492423144902,
+        "image_center_mean_pixels": 133.5453346141907,
+        "visibility_verified": false,
+        "association": {
+          "both_valid_frames": 15560,
+          "material_alternative_assignment_frames": 259,
+          "minimum_joint_gain_pixels": 16,
+          "identity_tracking_validated": false
+        }
+      }
+    },
+    "relative_mean_gain_over_source": 0.0866008665221133,
+    "dataset_sha256": "d5e9f2c46cf27f79a20f31b10d35469d1391816d1949e38f5d83dbf0c94fea5c",
+    "source_checkpoint_sha256": "803c8e0537c567175f07c8c34da8b24f2bc2839ad727769d9d1333d02d5242c9",
+    "common_center_keys_sha256": {
+      "train": "351bcf8796b531cad438edda591e7fb82a8f98fdb718d8974fbd4cd7ee5da33d",
+      "validation": "6e0dc80b750f3f5a4c22ea4ff351994363d2555617432eb7f14571ed31921b9c"
+    },
+    "evaluation_steps": [
+      0,
+      1000,
+      2000,
+      3000,
+      4000,
+      5000,
+      6000,
+      7000,
+      8000,
+      9000,
+      10000,
+      11000,
+      12000,
+      13000,
+      14000,
+      15000,
+      16000,
+      17000,
+      18000,
+      19000,
+      20000
+    ],
+    "final_test_matches_opened": 0,
+    "source_weights_updated": false,
+    "pixel_visibility_verified": false
+  },
+  "training_completed": true,
+  "temporal_checks": {
+    "relative_mean_gain": true,
+    "relative_mean_gain_over_source": true,
+    "pck32_retained": true
+  },
+  "relative_mean_gain_over_center": 0.08568909813627246,
+  "relative_mean_gain_over_source": 0.0866008665221133,
+  "temporal_criteria_met": true,
+  "tracking_proxy": {
+    "center_material_alternative_assignment_frames": 261,
+    "ordered_material_alternative_assignment_frames": 215,
+    "maximum_count_ratio": 0.9,
+    "minimum_joint_gain_pixels": 16.0,
+    "criterion_met": true,
+    "identity_tracking_validated": false
+  },
+  "source_weights_updated": false,
+  "controller_improvement_established": false,
+  "automatic_controller_promotion": false,
+  "pixel_visibility_verified": false,
+  "final_test_matches_opened": 0
+}
