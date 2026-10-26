@@ -86,6 +86,20 @@ Report back in plain English, with numbers:
 - Set random seeds and record the config for every run.
 - Ask before deleting anything or copying large data (check disk with du/df first).
 
+## Standing permissions (granted by the owner 2026-10-26)
+- GPU time: no need to ask. This is the owner's personal server; runs may take days.
+  Aim to keep a single run under ~24 h; longer is OK if genuinely needed (say why).
+  Always run in tmux, log to logs/, and record the config (rules above).
+- Work autonomously through a milestone; stop only for decisions that are truly the
+  owner's (deleting/downloading large things, changing the plan, surprising results).
+- Git: commit at meaningful checkpoints and push to GitHub (origin =
+  git@github.com:houndsolo/ssbm-vid2slp.git, branch main, private) after each milestone.
+  Commit identity: houndsolo <houndsolo@lylat.space>. Never commit data, checkpoints,
+  or secrets. The SSH key has a passphrase: if it isn't loaded in an agent, ask the
+  owner rather than storing the passphrase anywhere.
+- Communication: the owner is not a developer; after each milestone give a plain-English
+  summary with measured numbers, what's trustworthy, and what's next.
+
 ## Layout
 - src/vid2slp/  library code (parsing, models, assembly)
 - scripts/      small runnable scripts, one job each, heavily commented
