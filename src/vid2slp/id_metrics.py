@@ -15,12 +15,14 @@ We therefore report:
                                 tilt (< 64/80 = 0.8), or smash (>= 0.8), with direction
   cstick_dir                  - same C-stick direction (neutral / left / right / up / down)
   trigger_cat                 - same trigger category (none / light-shield analog / full)
-  <button>_held_f1            - F1 of "button is held" per frame (A, B, Z, JUMP=X|Y, SHIELD=L|R)
+  <button>_held_f1            - F1 of "button is held" per frame (A, B, Z, JUMP=X|Y, SHIELD=L|R,
+                                and the JUMP_EDGE / SHIELD_EDGE "new press of the pair" flags)
   <button>_press_f1           - F1 of the exact frame the button goes down
   <button>_press_f1_tol2      - same, but a press counts if it is within 2 frames
-  press_f1_tol2_mean          - average of the above over the 5 buttons (headline number)
-  frame_all_correct           - stick zones, C-stick direction, trigger category and all 5
-                                buttons ALL match on that frame (strict headline number)
+  press_f1_tol2_mean          - average press F1 (+-2 frames) over the 5 press events the game
+                                reacts to: A, B, Z, JUMP_EDGE, SHIELD_EDGE (headline number)
+  frame_all_correct           - stick zones, C-stick direction, trigger category and all
+                                button flags ALL match on that frame (strict headline number)
 
 F1 = harmonic mean of precision (how many predicted presses were real) and recall
 (how many real presses were found); 1.0 is perfect, 0 means none found.
@@ -31,6 +33,7 @@ import numpy as np
 from vid2slp.id_data import BUTTONS
 
 DEADZONE = 23   # in 1/80 units
+PRESS_EVENTS = ["A", "B", "Z", "JUMP_EDGE", "SHIELD_EDGE"]
 SMASH = 64
 
 
@@ -113,7 +116,8 @@ def score(true_tgt, pred_tgt, true_btn, pred_btn, offsets):
         m[f"{name}_press_f1"] = _f1((t_on & p_on).sum(), p_on.sum(), (t_on & p_on).sum(), t_on.sum())
         f1_tol = _f1((p_on & _dilate(t_on, 2)).sum(), p_on.sum(), (t_on & _dilate(p_on, 2)).sum(), t_on.sum())
         m[f"{name}_press_f1_tol2"] = f1_tol
-        press_f1s.append(f1_tol)
+        if name in PRESS_EVENTS:
+            press_f1s.append(f1_tol)
     m["press_f1_tol2_mean"] = float(np.mean(press_f1s))
     m["buttons_all_exact"] = np.mean(tb == pb)
     m["frame_all_correct"] = np.mean(joint_t & cdir_t & trig_t & (tb == pb))

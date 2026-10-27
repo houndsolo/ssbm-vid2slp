@@ -20,9 +20,17 @@ import pandas as pd
 
 # ---- targets ---------------------------------------------------------------------------
 # Logical buttons. X and Y both jump, and L and R (digital click) both shield / air dodge,
-# so each pair is merged: any equivalent button gives the same behaviour.
-BUTTONS = ["A", "B", "Z", "JUMP", "SHIELD"]
-_PHYS_BITS = {"A": [8], "B": [9], "Z": [4], "JUMP": [10, 11], "SHIELD": [5, 6]}  # .slp physical bit numbers
+# so each pair is merged into "any of the pair is held" (JUMP, SHIELD).
+# BUT merging alone loses information: pressing R while L is already held is a NEW press
+# (e.g. wavedash out of shield: hold L, jump, press R to air dodge), yet "any held" stays 1.
+# Found 2026-10-27 when true inputs, merged, failed to replay identically. So each pair also
+# gets an EDGE flag: "some button of the pair went down on this frame".
+# DPAD_UP is the taunt. Rare (0.02% of frames) but used in ~15% of games, and dropping it
+# makes the replay diverge (found 2026-10-27 in the same oracle check).
+BUTTONS = ["A", "B", "Z", "JUMP", "SHIELD", "JUMP_EDGE", "SHIELD_EDGE", "DPAD_UP"]
+_PHYS_BITS = {"A": [8], "B": [9], "Z": [4], "JUMP": [10, 11], "SHIELD": [5, 6],
+              "DPAD_UP": [3]}  # .slp physical bit numbers
+_EDGE_OF = {"JUMP_EDGE": "JUMP", "SHIELD_EDGE": "SHIELD"}
 AXES = ["stick_x", "stick_y", "cstick_x", "cstick_y"]
 AXIS_CLASSES = 161     # -80..80
 TRIGGER_CLASSES = 141  # 0..140 (value * 140)
@@ -50,8 +58,11 @@ STAGE_INDEX = {2: 0, 3: 1, 8: 2, 28: 3, 31: 4, 32: 5}
 
 def game_arrays(parquet_path, stage_id):
     """Load one parsed game and return (num, cat, tgt, btn) for frames >= 0."""
-    t = pd.read_parquet(parquet_path)
-    t = t[t.frame >= 0]
+    full = pd.read_parquet(parquet_path)
+    # Button edges need the previous frame, so compute them on the full table first
+    # (frame 0's "previous frame" is frame -1, from the countdown).
+    phys_full = full.buttons_physical.to_numpy().astype(np.int64).reshape(-1, 2)
+    t = full[full.frame >= 0]
     n = len(t) // 2
     # Each frame has exactly two rows (two ports), sorted by frame then port,
     # so a reshape gives [frame, port]. Check that assumption instead of trusting it.
@@ -79,13 +90,21 @@ def game_arrays(parquet_path, stage_id):
     tgt = np.stack([np.round(col(a) * 80) + 80 for a in AXES] + [np.round(col("trigger") * 140)], axis=-1)
     tgt = np.clip(tgt, 0, [160, 160, 160, 160, 140]).astype(np.int16)
 
-    phys = t.buttons_physical.to_numpy().astype(np.int64).reshape(n, 2)
+    first = len(phys_full) - n          # row of frame 0 in the full table
+    phys, prev = phys_full[first:], phys_full[first - 1:-1]
     btn = np.zeros((n, 2), np.uint8)
     for i, name in enumerate(BUTTONS):
-        held = np.zeros((n, 2), bool)
-        for bit in _PHYS_BITS[name]:
-            held |= ((phys >> bit) & 1).astype(bool)
-        btn |= (held.astype(np.uint8) << i)
+        if name in _EDGE_OF:
+            # any button of the pair that is down now but was up on the previous frame
+            bits = _PHYS_BITS[_EDGE_OF[name]]
+            flag = np.zeros((n, 2), bool)
+            for bit in bits:
+                flag |= (((phys >> bit) & 1) & ~((prev >> bit) & 1)).astype(bool)
+        else:
+            flag = np.zeros((n, 2), bool)
+            for bit in _PHYS_BITS[name]:
+                flag |= ((phys >> bit) & 1).astype(bool)
+        btn |= (flag.astype(np.uint8) << i)
     return num, cat, tgt, btn
 
 
