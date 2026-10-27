@@ -93,7 +93,9 @@ Report back in plain English, with numbers:
 - Work autonomously through a milestone; stop only for decisions that are truly the
   owner's (deleting/downloading large things, changing the plan, surprising results).
 - Git: commit at meaningful checkpoints and push to GitHub (origin =
-  git@github.com:houndsolo/ssbm-vid2slp.git, branch main, private) after each milestone.
+  git@github.com:houndsolo/ssbm-vid2slp.git, branch main, private) right away, not
+  only after each milestone: the owner watches GitHub to see progress (asked 2026-10-27).
+  Interim results (experiments.md rows, docs) are worth a push too.
   Commit identity: houndsolo <houndsolo@lylat.space>. Never commit data, checkpoints,
   or secrets. The SSH key has a passphrase: if it isn't loaded in an agent, ask the
   owner rather than storing the passphrase anywhere.
