@@ -19,6 +19,12 @@ camera), in white. We cut out each digit box, keep the white pixels, and compare
 template per digit (an average white-pixel image), built by scripts/m3_timer_templates.py
 from renders whose alignment was verified against the old project's frame-exact clips.
 Geometry is for Playback Dolphin's 584x480 frame dump.
+
+Second reader (more robust, used for the final labels): a tiny neural network that looks at
+one digit box (colour) and says which digit it is (DigitNet below). Bright stages (e.g.
+Yoshi's Story, light sky behind the timer) defeat the white-pixel templates, but the black
+outline of the digits is still clear. The network is trained by scripts/m3_timer_digits.py
+on frames whose game frame is certain, from many stages.
 """
 
 import math
@@ -124,3 +130,77 @@ def fill_gaps(fmap):
     for a, b in zip(known[:-1], known[1:]):
         if b - a > 1 and fmap[b] - fmap[a] == b - a:
             fmap[a + 1:b] = fmap[a] + np.arange(1, b - a)
+
+
+# ---------------------------------------------------------------------------------------
+# Second reader: a small convolutional network per digit box.
+# ---------------------------------------------------------------------------------------
+DIGIT_NET = os.path.join(os.path.dirname(__file__), "timer_digitnet.pt")
+BOX_SIZE = (24, 24)  # every digit box (big or small) is resized to this before the network
+
+
+def digit_boxes(crops):
+    """Timer crops [N, h, w, 3] uint8 -> digit boxes [N, 6, 3, 24, 24] float in 0..1
+    (order m0 m1 s0 s1 c0 c1). One network reads both sizes: it is the same font.)"""
+    import cv2
+    out = np.zeros((len(crops), 6, 3, BOX_SIZE[1], BOX_SIZE[0]), np.float32)
+    for j, (x0, x1, y0, y1) in enumerate(BIG_BOXES + SMALL_BOXES):
+        for i, crop in enumerate(crops):
+            out[i, j] = cv2.resize(crop[y0:y1, x0:x1], BOX_SIZE, interpolation=cv2.INTER_AREA).transpose(2, 0, 1) / 255.0
+    return out
+
+
+def make_digit_net():
+    import torch.nn as nn
+    return nn.Sequential(
+        nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),     # 12x12
+        nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),    # 6x6
+        nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(),
+        nn.Flatten(), nn.Linear(64 * 6 * 6, 128), nn.ReLU(), nn.Linear(128, 10))
+
+
+def load_digit_net(device="cpu"):
+    import torch
+    net = make_digit_net()
+    net.load_state_dict(torch.load(DIGIT_NET, map_location=device))
+    return net.to(device).eval()
+
+
+def read_timers_net(crops, net, device="cpu", min_prob=0.99, batch=4096):
+    """Read the timer on many crops with the network. Returns list of 'mmsscc' or None.
+    A reading is kept only if every one of the 6 digits has probability >= min_prob."""
+    import torch
+    out = []
+    for a in range(0, len(crops), batch):
+        boxes = torch.from_numpy(digit_boxes(crops[a:a + batch])).to(device)
+        with torch.no_grad():
+            prob = net(boxes.flatten(0, 1)).softmax(-1).view(len(boxes), 6, 10)
+        p, d = prob.max(-1)
+        for ok, digits in zip((p >= min_prob).all(-1).tolist(), d.tolist()):
+            out.append("".join(map(str, digits)) if ok else None)
+    return out
+
+
+def frame_map_net(crops, last_frame, start_seconds, net, device="cpu"):
+    """Like frame_map(), but with the network reader, plus a consistency rule that removes
+    misreads. Between two readings at video frames a < b, the game frame must go up by at
+    least b - a (Dolphin never shows a game frame twice: checked, maps are strictly
+    increasing) and by at most 2 * (b - a) + 2 (skipped frames are rare). A reading that
+    breaks this with a neighbour is dropped (repeated until none break it).
+    Returns (int32 array, number of readings not used)."""
+    lookup = timer_lookup(last_frame, start_seconds)
+    reads = read_timers_net(crops, net, device)
+    fmap = np.array([lookup.get(r, -1) if r else -1 for r in reads], dtype=np.int32)
+    while True:
+        known = np.where(fmap >= 0)[0]
+        dv = np.diff(known)                    # video frames between neighbouring readings
+        dg = np.diff(fmap[known])              # game frames between them
+        broken = (dg < dv) | (dg > 2 * dv + 2)
+        if not broken.any():
+            break
+        # drop both readings of every broken pair; the good one usually comes back via fill_gaps
+        fmap[known[:-1][broken]] = -1
+        fmap[known[1:][broken]] = -1
+    unused = int((fmap < 0).sum())
+    fill_gaps(fmap)
+    return fmap, unused

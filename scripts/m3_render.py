@@ -4,8 +4,9 @@ m3_render.py - render replays to video for milestone 3 (perception), with exact 
 For each chosen game:
   1. Playback Dolphin plays the whole replay and dumps every displayed frame losslessly
      (FFV1 .avi, temporary; ~5 MB per second of footage).
-  2. The in-game timer is read on every frame of that lossless video
-     (src/vid2slp/hud_timer.py), which gives each video frame's exact game frame.
+  2. The in-game timer is read on every frame of that lossless video by a small digit
+     network (src/vid2slp/hud_timer.py), which gives each video frame's exact game frame.
+     (scripts/m3_frame_maps.py can redo this later for all games, e.g. after retraining it.)
      Why not just count frames: Dolphin skips displaying some game frames (deterministically,
      measured 2026-10-27), so counting drifts by a few frames over a game.
   3. The video is compressed to H.264 (CRF 23, ~16 MB per minute) -> video.mp4.
@@ -26,6 +27,7 @@ frozen split as everything else), so test games stay unseen.
 Run (inside tmux; resumable, finished games are skipped):
     .venv/bin/python scripts/m3_render.py --split validation --count 50 --parallel 3
     .venv/bin/python scripts/m3_render.py --split train --count 400 --parallel 3
+    add --gpu 0 to draw on the GT 1030 (much faster; same pictures, checked 2026-10-27)
 """
 
 import argparse
@@ -39,6 +41,7 @@ from multiprocessing import Pool
 import av
 import numpy as np
 import pandas as pd
+import torch
 
 from vid2slp import hud_timer
 from vid2slp.playback import regenerate
@@ -55,7 +58,7 @@ def timer_crops_from_video(avi):
 
 
 def render_one(job):
-    sha, slp, last_frame, start_seconds = job
+    sha, slp, last_frame, start_seconds, gpu = job
     out = os.path.join(OUT, sha)
     if os.path.exists(os.path.join(out, "info.json")):
         return sha, "skipped"
@@ -64,13 +67,14 @@ def render_one(job):
     os.makedirs(out, exist_ok=True)
     t0 = time.time()
     try:
-        regenerate(slp, work, end=last_frame, timeout=3600, stall_seconds=30,
+        regenerate(slp, work, end=last_frame, timeout=3600, stall_seconds=30, gpu=gpu,
                    dump_video={"codec": "ffv1", "fmt": "avi", "kbps": 25000})
         avi = os.path.join(work, "user", "Dump", "Frames", "framedump0.avi")
         t_render = time.time() - t0
         crops = timer_crops_from_video(avi)
         np.savez_compressed(os.path.join(out, "timer_crops.npz"), crops=crops)
-        fmap, rejected = hud_timer.frame_map(crops, last_frame, start_seconds, hud_timer.load_templates())
+        torch.set_num_threads(2)  # the network runs on the CPU here; don't fight the renders
+        fmap, rejected = hud_timer.frame_map_net(crops, last_frame, start_seconds, hud_timer.load_digit_net())
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", avi, "-c:v", "libx264", "-preset", "medium",
                         "-crf", str(CRF), "-pix_fmt", "yuv420p", os.path.join(out, "video.mp4")], check=True)
     except Exception as e:  # keep going with the other games; the error is recorded
@@ -84,7 +88,9 @@ def render_one(job):
         "sha256": sha, "replay": slp, "last_frame": int(last_frame), "timer_start_seconds": int(start_seconds),
         "video_frames": int(len(fmap)), "labeled_frames": int(len(labeled)),
         "timer_rejected_reads": int(rejected),
-        "game_frames_missing_from_video": int(last_frame - len(np.unique(labeled))) if len(labeled) else None,
+        "reader": "digitnet",
+        # game frames between the first and last labelled one that never appear in the video
+        "game_frames_skipped_inside": int(labeled.max() - labeled.min() + 1 - len(labeled)) if len(labeled) else None,
         "strictly_increasing": increasing,
         "render_seconds": round(t_render, 1), "total_seconds": round(time.time() - t0, 1),
         "mp4_bytes": os.path.getsize(os.path.join(out, "video.mp4")), "crf": CRF,
@@ -101,6 +107,8 @@ def main():
     ap.add_argument("--count", type=int, required=True)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--parallel", type=int, default=3)
+    ap.add_argument("--gpu", type=int, default=None,
+                    help="draw on this NVIDIA GPU (nvidia-smi number; 0 = GT 1030) instead of the CPU")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
@@ -116,9 +124,9 @@ def main():
     jobs = []
     for row in games.itertuples():
         start_seconds = peppi_py.read_slippi(row.path, skip_frames=True).start.timer
-        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds)))
+        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu))
     # record which games were chosen (with the seed) so the selection is reproducible
-    pd.DataFrame(jobs, columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
+    pd.DataFrame([j[:4] for j in jobs], columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
         f"data/m3/selection_{args.split}_seed{args.seed}_n{args.count}.csv", index=False)
     print(f"{args.split}: rendering {len(jobs)} games with {args.parallel} in parallel", flush=True)
     t0 = time.time()

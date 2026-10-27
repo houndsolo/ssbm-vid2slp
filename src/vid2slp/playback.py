@@ -32,7 +32,7 @@ ISO = "/home/prompter/yt2slp/recordings/vanilla.iso"
 IMAGE = "yt2slp-render:gcc14"
 
 GECKO = "[Gecko_Enabled]\n$Required: General Codes\n$Required: Slippi Playback\n$Recommended: Slippi Recording\n"
-DOLPHIN_INI = ("[Core]\nCPUThread = {dual}\nDSPHLE = True\nGFXBackend = OGL\n"
+DOLPHIN_INI = ("[Core]\nCPUThread = {dual}\nDSPHLE = True\nGFXBackend = {backend}\n"
                "SlippiRegenerateReplays = True\nSlippiReplayRegenerateDir = /out/regenerated\n"
                "{speed}[Interface]\nConfirmStop = False\n[DSP]\nBackend = No audio output\n{movie}")
 GFX_INI = "[Hardware]\nVSync = False\n[Settings]\nShowFPS = False\n{dump}"
@@ -43,7 +43,7 @@ GFX_DUMP = "DumpCodec = {codec}\nDumpFormat = {fmt}\nBitrateKbps = {kbps}\nInter
 
 
 def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_speed=True, resync=False,
-               stall_seconds=60, dump_video=None, dual_core=False):
+               stall_seconds=60, dump_video=None, dual_core=False, gpu=None):
     """Play `slp_path` from frame `start` to `end` and return (regenerated .slp path, seconds taken).
 
     out_dir must not exist yet; it receives the Dolphin user folder, logs and the result.
@@ -52,6 +52,9 @@ def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_s
     dump_video: None (no video), or a dict like {"codec": "ffv1", "fmt": "avi", "kbps": 25000}
         to also write the rendered frames to out_dir/user/Dump/Frames/.
     dual_core: run the emulated CPU and GPU on separate threads (faster; only used for video).
+    gpu: None = draw with software OpenGL on the CPU. Or an NVIDIA GPU number as nvidia-smi
+        shows it (0 = GT 1030, 1 = V100) to draw with Vulkan on that GPU. Needs the host
+        package libnvidia-gl-580-server (scripts/install_gpu_graphics.sh).
     """
     slp_path = os.path.abspath(slp_path)
     out_dir = os.path.abspath(out_dir)
@@ -63,7 +66,8 @@ def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_s
     speed = "EmulationSpeed = 0.0\n" if unlimited_speed else ""
     movie = MOVIE_DUMP if dump_video else ""
     dump = GFX_DUMP.format(**dump_video) if dump_video else ""
-    open(os.path.join(out_dir, "user", "Config", "Dolphin.ini"), "w").write(DOLPHIN_INI.format(speed=speed, movie=movie, dual=dual_core))
+    open(os.path.join(out_dir, "user", "Config", "Dolphin.ini"), "w").write(DOLPHIN_INI.format(speed=speed, movie=movie, dual=dual_core,
+                                                                 backend="OGL" if gpu is None else "Vulkan"))
     open(os.path.join(out_dir, "user", "Config", "GFX.ini"), "w").write(GFX_INI.format(dump=dump))
     if end is None:
         import peppi_py
@@ -73,7 +77,9 @@ def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_s
     json.dump(request, open(os.path.join(out_dir, "request.json"), "w"))
 
     name = f"vid2slp-playback-{uuid.uuid4().hex[:10]}"
-    cmd = ["docker", "run", "--rm", "--init", "--name", name, "--shm-size=2g", "--network=none",
+    # the GPU is handed to the container by NVIDIA's container toolkit (CDI device name)
+    gpu_args = [] if gpu is None else ["--device", f"nvidia.com/gpu={gpu}", "-e", "NVIDIA_DRIVER_CAPABILITIES=all"]
+    cmd = ["docker", "run", "--rm", "--init", "--name", name, "--shm-size=2g", "--network=none", *gpu_args,
            "-u", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/out/home",
            "-v", f"{DOLPHIN_DIR}:/playback:ro", "-v", f"{ISO}:/iso/melee.iso:ro",
            "-v", f"{slp_path}:/replay/game.slp:ro", "-v", f"{out_dir}:/out",
