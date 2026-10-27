@@ -59,9 +59,11 @@ def get_args():
 
 
 def rendered_games(split):
-    """sha256 of every finished render that belongs to `split`."""
+    """sha256 of every finished render that belongs to `split`, leaving out games whose playback
+    ended early (desynced, see scripts/m3_frame_maps.py)."""
     manifest = pd.read_csv("data/parsed/manifest.csv").set_index("sha256")
-    done = [os.path.basename(os.path.dirname(p)) for p in glob.glob("data/m3/renders/*/info.json")]
+    done = [os.path.basename(os.path.dirname(p)) for p in glob.glob("data/m3/renders/*/info.json")
+            if not json.load(open(p)).get("playback_ended_early", False)]
     return sorted(s for s in done if s in manifest.index and manifest.loc[s, "split"] == split)
 
 

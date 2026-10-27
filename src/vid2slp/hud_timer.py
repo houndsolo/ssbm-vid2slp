@@ -187,9 +187,26 @@ def frame_map_net(crops, last_frame, start_seconds, net, device="cpu"):
     least b - a (Dolphin never shows a game frame twice: checked, maps are strictly
     increasing) and by at most 2 * (b - a) + 2 (skipped frames are rare). A reading that
     breaks this with a neighbour is dropped (repeated until none break it).
-    Returns (int32 array, number of readings not used)."""
-    lookup = timer_lookup(last_frame, start_seconds)
+    The timer's starting value normally comes from the replay (start_seconds), but some
+    replays store 8 minutes while the game showed a shorter timer (seen on 2-minute games
+    2026-10-27). So if fewer than half of the confident readings exist in the table for
+    start_seconds, every whole-minute start from 1 to 99 minutes is tried and the one that
+    matches the most readings is used (the smallest one on a tie). Readings of a whole
+    minute "mm:00 00" are left out of that vote: the countdown before the game shows the
+    starting value for ~120 frames, which would otherwise vote for a start one minute too
+    high (on a 3-minute table, "02:00 00" is a real game frame).
+    Returns (int32 array, number of readings not used, start seconds actually used)."""
     reads = read_timers_net(crops, net, device)
+    confident = [r for r in reads if r and not r.endswith("0000")]
+    lookup = timer_lookup(last_frame, start_seconds)
+    if sum(r in lookup for r in confident) < 0.5 * len(confident):
+        best = (sum(r in lookup for r in confident), start_seconds, lookup)
+        for minutes in range(1, 100):
+            table = timer_lookup(last_frame, 60 * minutes)
+            hits = sum(r in table for r in confident)
+            if hits > best[0]:
+                best = (hits, 60 * minutes, table)
+        _, start_seconds, lookup = best
     fmap = np.array([lookup.get(r, -1) if r else -1 for r in reads], dtype=np.int32)
     while True:
         known = np.where(fmap >= 0)[0]
@@ -203,4 +220,4 @@ def frame_map_net(crops, last_frame, start_seconds, net, device="cpu"):
         fmap[known[1:][broken]] = -1
     unused = int((fmap < 0).sum())
     fill_gaps(fmap)
-    return fmap, unused
+    return fmap, unused, start_seconds

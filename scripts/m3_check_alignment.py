@@ -11,10 +11,13 @@ Only games where the players use controller ports 1 and 2 are checked (the HUD p
 depends on the port; these two boxes are measured on a 584x480 render).
 
 Run:
-    .venv/bin/python scripts/m3_check_alignment.py            # all rendered games
+    .venv/bin/python scripts/m3_check_alignment.py --parallel 4   # all rendered games
+Prints one line per game (a game far from offset 0 is marked SUSPICIOUS), then the totals.
 """
 
+import argparse
 import glob
+import multiprocessing
 import os
 from collections import Counter
 
@@ -44,29 +47,47 @@ def changed(m, i):
     return int((m[i] != m[i - 1]).sum()) if 0 < i < len(m) else 0
 
 
-def main():
+def check_game(sha):
+    """Counter of HUD onset offsets for every hit in one game (None if not ports 1+2)."""
     manifest = pd.read_csv("data/parsed/manifest.csv").set_index("sha256")
+    df = pd.read_parquet(manifest.loc[sha, "parquet"], columns=["port"])
+    if sorted(df.port.unique()) != [0, 1]:
+        return sha, None
+    lab = game_labels(sha)
+    masks = hud_masks(f"data/m3/renders/{sha}/video.mp4")
+    counts = Counter()
+    gf, valid = lab["game_frame"], lab["valid"]
+    for slot in (0, 1):
+        m, pct, stk = masks[slot], lab["percent"][:, slot], lab["stocks"][:, slot]
+        for i in range(5, len(gf) - 7):
+            # a hit at video frame i, with no skipped game frames around it
+            if not (valid[i - 5:i + 7].all() and gf[i + 6] - gf[i - 5] == 11):
+                continue
+            if pct[i] > pct[i - 1] + 0.5 and stk[i] == stk[i - 1]:
+                if any(changed(m, i + k) >= CHANGE_PIXELS for k in (-4, -3, -2)):
+                    continue  # HUD still moving from an earlier hit
+                onset = next((k for k in SEARCH if changed(m, i + k) >= CHANGE_PIXELS), None)
+                counts[onset] += 1
+    return sha, counts
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--parallel", type=int, default=1, help="games checked at the same time")
+    args = ap.parse_args()
+    shas = sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob("data/m3/renders/*/info.json"))
     counts, games = Counter(), 0
-    for info in sorted(glob.glob("data/m3/renders/*/info.json")):
-        sha = os.path.basename(os.path.dirname(info))
-        df = pd.read_parquet(manifest.loc[sha, "parquet"], columns=["port"])
-        if sorted(df.port.unique()) != [0, 1]:
-            continue
-        lab = game_labels(sha)
-        masks = hud_masks(f"data/m3/renders/{sha}/video.mp4")
-        games += 1
-        gf, valid = lab["game_frame"], lab["valid"]
-        for slot in (0, 1):
-            m, pct, stk = masks[slot], lab["percent"][:, slot], lab["stocks"][:, slot]
-            for i in range(5, len(gf) - 7):
-                # a hit at video frame i, with no skipped game frames around it
-                if not (valid[i - 5:i + 7].all() and gf[i + 6] - gf[i - 5] == 11):
-                    continue
-                if pct[i] > pct[i - 1] + 0.5 and stk[i] == stk[i - 1]:
-                    if any(changed(m, i + k) >= CHANGE_PIXELS for k in (-4, -3, -2)):
-                        continue  # HUD still moving from an earlier hit
-                    onset = next((k for k in SEARCH if changed(m, i + k) >= CHANGE_PIXELS), None)
-                    counts[onset] += 1
+    with multiprocessing.Pool(args.parallel) as pool:
+        for sha, c in pool.imap_unordered(check_game, shas):
+            if c is None:
+                continue
+            games += 1
+            counts.update(c)
+            n = sum(c.values())
+            good = c[0] + c[-1]
+            # per game: a game whose video drifts away from its replay (desync) shows up here
+            flag = "  <-- SUSPICIOUS" if n >= 5 and good / n < 0.7 else ""
+            print(f"{sha[:12]}: {n} hits, {good} at offset 0/-1{flag}", flush=True)
     total = sum(counts.values())
     print(f"{games} games (ports 1+2), {total} hits")
     for k, n in sorted(counts.items(), key=lambda kv: (kv[0] is None, kv[0] if kv[0] is not None else 0)):

@@ -75,7 +75,8 @@ def render_one(job):
         crops = timer_crops_from_video(avi)
         np.savez_compressed(os.path.join(out, "timer_crops.npz"), crops=crops)
         torch.set_num_threads(2)  # the network runs on the CPU here; don't fight the renders
-        fmap, rejected = hud_timer.frame_map_net(crops, last_frame, start_seconds, hud_timer.load_digit_net())
+        fmap, rejected, shown_start = hud_timer.frame_map_net(crops, last_frame, start_seconds,
+                                                             hud_timer.load_digit_net())
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", avi, "-c:v", "libx264", "-preset", "medium",
                         "-crf", str(CRF), "-pix_fmt", "yuv420p", os.path.join(out, "video.mp4")], check=True)
     except Exception as e:  # keep going with the other games; the error is recorded
@@ -86,7 +87,8 @@ def render_one(job):
     labeled = fmap[fmap >= 0]
     increasing = bool((np.diff(labeled) > 0).all())  # must hold, else something was misread
     info = {
-        "sha256": sha, "replay": slp, "last_frame": int(last_frame), "timer_start_seconds": int(start_seconds),
+        "sha256": sha, "replay": slp, "last_frame": int(last_frame), "timer_start_seconds": int(shown_start),
+        "timer_start_seconds_replay": int(start_seconds),  # can differ: see hud_timer.frame_map_net
         "video_frames": int(len(fmap)), "labeled_frames": int(len(labeled)),
         "timer_rejected_reads": int(rejected),
         "reader": "digitnet",

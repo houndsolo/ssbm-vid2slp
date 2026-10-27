@@ -46,6 +46,9 @@ def certain_examples(sha, rng):
         return None
     templates = hud_timer.load_templates()
     idx = np.where(fmap >= 1)[0]
+    if len(idx) == 0:      # timer never read (should not happen since the start-value fix)
+        print(f"{sha[:12]}: no labelled frames, skipped")
+        return None
     idx = np.array(sorted(rng.sample(list(idx), min(PER_GAME, len(idx)))))
     digits = np.array([[int(c) for c in hud_timer.frame_to_timer(int(fmap[i]), info["timer_start_seconds"])]
                        for i in idx])
