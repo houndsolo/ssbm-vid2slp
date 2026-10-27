@@ -64,3 +64,28 @@ frame-exact clips gave 94.4% at 0 on the same test, so the labels are frame-exac
   the replay's last frame (`playback_ended_early` in info.json) and left out of training.
 - Per-game HUD-% check on all 397 games: 92.9% of 10,240 hits at offset 0, 6.8% at −1;
   only the 3 desynced games are below 90%. No other desync found by this test.
+
+## First model: `percep_v1` (2026-10-27)
+ResNet-18 (pretrained on ImageNet) looks at each frame; a small transformer looks across the
+32 frames of a clip; heads predict both players' state. 30,000 steps of 8 clips (2.6 h).
+Validation games (49, never trained on), `scripts/m3_analyze.py`:
+
+| | |
+|---|---|
+| Action state (exact) | 0.755 (0.776 if off by up to 2 frames counts) |
+| Character / stocks | 0.947 / 0.9996 |
+| Facing / airborne | 0.937 / 0.971 |
+| Position error x / y | 4.9 / 3.7 world units (stage ~500 wide); 3.7 / 1.8 on the ground |
+| Damage % | mean error 1.96; within 1%: 46%; within 5%: 96% |
+
+Where it fails:
+- **Rare characters.** The training games are 61% Fox and 20% Falco (it is the owner's
+  library). Fox, Falco, Falcon: 100% character, 0.82 / 0.78 / 0.65 action. Samus and
+  Young Link never appear in the training games and are never recognised; Peach (6 players)
+  0.14. The whole library has more of them (e.g. 62 Peach, 51 Sheik, 59 Donkey Kong players
+  in the train split), so the next renders should be chosen by character.
+- **Look-alike actions.** Most common real mistakes: the five "launched by a hit" variants
+  (DamageFly Hi/N/Lw/Top/Roll), forward vs backward double jump, forward vs back air, shield
+  start vs shield stun. Several of these hinge on facing direction (0.937).
+- **Damage %** is close but rarely exact (46% within 1%). A dedicated HUD reader, like the
+  timer reader, should do better.
