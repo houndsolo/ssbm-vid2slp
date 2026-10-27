@@ -49,7 +49,11 @@ def main():
     manifest_path = os.path.join(OUT_DIR, "manifest.csv")
     old = pd.read_csv(manifest_path) if os.path.exists(manifest_path) else pd.DataFrame()
 
-    done = set(old[old.get("error", pd.Series(dtype=str)).isna()].sha256) if len(old) else set()
+    # Games parsed OK last time. (The manifest only has an "error" column if some game failed.)
+    if len(old) and "error" in old.columns:
+        done = set(old[old.error.isna()].sha256)
+    else:
+        done = set(old.sha256) if len(old) else set()
     jobs = [(r.sha256, r.split, r.path) for r in games.itertuples()
             if r.sha256 not in done or not os.path.exists(os.path.join(OUT_DIR, f"{r.sha256}.parquet"))]
     print(f"games in split file: {len(games)}   already parsed: {len(games) - len(jobs)}   to parse: {len(jobs)}",

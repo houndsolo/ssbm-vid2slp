@@ -42,3 +42,22 @@ player-slots) and Falco (1,406), then Marth 292, Ganon 225, Falcon 221.
 | train | 2,738 | 704 | 108.5 |
 | validation | 353 | 160 | 14.1 |
 | test | 344 | 146 | 13.8 |
+
+## Library update (2026-10-27)
+12,848 more .slp from the owner's other machine were moved (same disk, rename) into
+`data/recordings/incoming-2026-10-27/`. The whole of `data/recordings` is read-only.
+- Index rebuilt over old + new files (`build_slp_index.py data/recordings`); the previous
+  index is kept as `data/index/slp_index_before_2026-10-27.csv`.
+- The split was EXTENDED, not remade: `scripts/extend_splits.py` keeps every old game's split
+  and puts new games of a known opponent into that opponent's split; only new opponents are
+  shuffled (seed 0). Old split kept as `data/index/splits_before_2026-10-27.csv`.
+  (Rerunning `make_splits.py` would reshuffle everything and leak trained-on games into test.)
+- 17,603 files -> 2,457 duplicates, 49 unreadable -> **12,663 eligible games, 480 hours**.
+
+| Split | Games | of which new | Opponents | Hours |
+|---|---|---|---|---|
+| train | 10,121 | 7,383 | 1,587 | 382.6 |
+| validation | 1,267 | 914 | 306 | 48.5 |
+| test | 1,275 | 931 | 258 | 48.5 |
+
+Fox-Fox / Fox-Falco games (the project's scope): 9,277 train / 1,156 validation / 1,193 test.
