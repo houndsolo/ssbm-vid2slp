@@ -9,9 +9,11 @@ Arrays are written straight into files on disk (memory-mapped), so building the
 ~25M-frame training split does not need tens of GB of RAM.
 
 Run (CPU, ~1-2 min):
-    .venv/bin/python scripts/m2_build_dataset.py
+    .venv/bin/python scripts/m2_build_dataset.py                                  # v1 -> data/m2
+    .venv/bin/python scripts/m2_build_dataset.py --features v2 --out data/m2_v2   # v2 features
 """
 
+import argparse
 import os
 from multiprocessing import Pool
 
@@ -21,11 +23,12 @@ import pandas as pd
 from vid2slp import id_data
 
 OUT = "data/m2"
+FEATURES = "v1"
 
 
 def work(job):
     path, stage_id = job
-    return id_data.game_arrays(path, stage_id)
+    return id_data.game_arrays(path, stage_id, FEATURES)
 
 
 def build(split, games):
@@ -33,7 +36,8 @@ def build(split, games):
     offsets = np.concatenate([[0], np.cumsum(lengths)]).astype(np.int64)
     n = int(offsets[-1])
     arrays = {
-        "num": np.lib.format.open_memmap(f"{OUT}/{split}_num.npy", "w+", np.float32, (n, 2, id_data.NUM_FEATURES)),
+        "num": np.lib.format.open_memmap(f"{OUT}/{split}_num.npy", "w+", np.float32,
+                                         (n, 2, len(id_data.FEATURE_SETS[FEATURES]))),
         "cat": np.lib.format.open_memmap(f"{OUT}/{split}_cat.npy", "w+", np.int16, (n, 2, id_data.CAT_FEATURES)),
         "tgt": np.lib.format.open_memmap(f"{OUT}/{split}_tgt.npy", "w+", np.int16, (n, 2, 5)),
         "btn": np.lib.format.open_memmap(f"{OUT}/{split}_btn.npy", "w+", np.uint8, (n, 2)),
@@ -54,7 +58,14 @@ def build(split, games):
 
 
 def main():
+    global OUT, FEATURES
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--features", default="v1", choices=sorted(id_data.FEATURE_SETS))
+    ap.add_argument("--out", default="data/m2")
+    args = ap.parse_args()
+    OUT, FEATURES = args.out, args.features
     os.makedirs(OUT, exist_ok=True)
+    open(f"{OUT}/features.txt", "w").write(FEATURES + "\n")
     manifest = pd.read_csv("data/parsed/manifest.csv")
     index = pd.read_csv("data/index/slp_index.csv")[["sha256", "stage_id"]]
     games = manifest.merge(index, on="sha256").sort_values("sha256")

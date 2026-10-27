@@ -22,7 +22,7 @@ import torch
 
 from vid2slp.id_data import BUTTONS, CATEGORICAL, load_split
 from vid2slp.id_metrics import HEADLINE, axis_zone, cstick_dir, score, trigger_cat
-from vid2slp.id_model import InverseDynamics, predict_split
+from vid2slp.id_model import build_from_config, predict_split
 
 DATA = "data/m2"
 # internal character ids (as stored in post-frame state) for the common characters
@@ -40,9 +40,10 @@ def main():
 
     ck = torch.load(f"{run_dir}/{args.checkpoint}", map_location="cuda:0")
     cfg = ck["config"]
-    model = InverseDynamics(cfg["d_model"], cfg["layers"], cfg["heads"], 0.0, cfg["window"]).to("cuda:0")
+    data_dir = cfg.get("data", DATA)  # dataset (feature version) this checkpoint was trained on
+    split = load_split(data_dir, args.split, mmap=False)
+    model = build_from_config(cfg, split["num"].shape[-1]).to("cuda:0")
     model.load_state_dict(ck["model"])
-    split = load_split(DATA, args.split, mmap=False)
     pred_tgt, pred_btn = predict_split(model, split, "cuda:0", cfg["window"])
     m = score(split["tgt"], pred_tgt, split["btn"], pred_btn, split["offsets"])
     base = json.load(open(f"{DATA}/baselines.json"))[args.split]

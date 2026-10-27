@@ -52,6 +52,8 @@ def get_args():
     ap.add_argument("--eval-every", type=int, default=5000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--data", default="data/m2", help="dataset folder (data/m2 = v1 features, data/m2_v2 = v2)")
+    ap.add_argument("--fp32-encoder", action="store_true", help="input layers in full precision")
     return ap.parse_args()
 
 
@@ -72,8 +74,8 @@ def main():
         log.flush()
 
     # ---- data -------------------------------------------------------------------------
-    train = load_split(DATA, "train", mmap=False)
-    val = load_split(DATA, "validation", mmap=False)
+    train = load_split(args.data, "train", mmap=False)
+    val = load_split(args.data, "validation", mmap=False)
     say(f"train frames {train['offsets'][-1]:,}  validation frames {val['offsets'][-1]:,}")
     g_num = torch.from_numpy(train["num"]).to(device)
     g_cat = torch.from_numpy(train["cat"]).to(device)
@@ -101,7 +103,8 @@ def main():
         return num, cat, tgt, btn
 
     # ---- model ------------------------------------------------------------------------
-    model = InverseDynamics(args.d_model, args.layers, args.heads, args.dropout, args.window).to(device)
+    model = InverseDynamics(args.d_model, args.layers, args.heads, args.dropout, args.window,
+                            num_features=g_num.shape[-1], fp32_encoder=args.fp32_encoder).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.98))
     scaler = torch.amp.GradScaler("cuda")
     step, best = 0, -1.0

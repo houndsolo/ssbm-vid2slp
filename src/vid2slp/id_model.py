@@ -30,10 +30,10 @@ CAT_DIMS = {"action": 64, "character": 16, "ground": 16, "hurtbox_state": 4,
 class FrameEncoder(nn.Module):
     """Turns [B, L, 2 players, features] into one d_model vector per frame."""
 
-    def __init__(self, d_model):
+    def __init__(self, d_model, num_features=NUM_FEATURES):
         super().__init__()
         self.embeds = nn.ModuleList(nn.Embedding(size, CAT_DIMS[name]) for name, size in CATEGORICAL)
-        per_player = NUM_FEATURES + sum(CAT_DIMS[name] for name, _ in CATEGORICAL)
+        per_player = num_features + sum(CAT_DIMS[name] for name, _ in CATEGORICAL)
         self.proj = nn.Sequential(nn.Linear(2 * per_player, d_model), nn.GELU(), nn.Linear(d_model, d_model))
 
     def forward(self, num, cat):
@@ -66,9 +66,13 @@ class Block(nn.Module):
 
 
 class InverseDynamics(nn.Module):
-    def __init__(self, d_model=384, layers=8, heads=8, dropout=0.1, window=256):
+    def __init__(self, d_model=384, layers=8, heads=8, dropout=0.1, window=256,
+                 num_features=NUM_FEATURES, fp32_encoder=False):
         super().__init__()
-        self.encoder = FrameEncoder(d_model)
+        # fp32_encoder: run the first (input) layers in full precision. In fp16, small values
+        # like a 0.01 velocity change next to a 2.5 position lose precision.
+        self.fp32_encoder = fp32_encoder
+        self.encoder = FrameEncoder(d_model, num_features)
         self.blocks = nn.ModuleList(Block(d_model, heads, dropout) for _ in range(layers))
         self.norm = nn.LayerNorm(d_model)
         self.axis_heads = nn.ModuleList(nn.Linear(d_model, AXIS_CLASSES) for _ in range(4))
@@ -80,7 +84,11 @@ class InverseDynamics(nn.Module):
         self.register_buffer("bias", (-slopes[:, None, None] * dist.abs()[None]).unsqueeze(0), persistent=False)
 
     def forward(self, num, cat):
-        x = self.encoder(num, cat)
+        if self.fp32_encoder:
+            with torch.autocast("cuda", enabled=False):
+                x = self.encoder(num.float(), cat)
+        else:
+            x = self.encoder(num, cat)
         length = x.shape[1]
         bias = self.bias[..., :length, :length]
         for blk in self.blocks:
@@ -167,6 +175,12 @@ def predict_split(model, split, device, window=256, batch=128):
                 pred_tgt[keep_from:keep_to, self_port] = tgt[row, keep_from - s:keep_to - s]
                 pred_btn[keep_from:keep_to, self_port] = btn[row, keep_from - s:keep_to - s]
     return pred_tgt, pred_btn
+
+
+def build_from_config(cfg, num_features):
+    """Recreate a model from a checkpoint's saved config (older configs lack the new keys)."""
+    return InverseDynamics(cfg["d_model"], cfg["layers"], cfg["heads"], 0.0, cfg["window"],
+                           num_features=num_features, fp32_encoder=cfg.get("fp32_encoder", False))
 
 
 def count_parameters(model):

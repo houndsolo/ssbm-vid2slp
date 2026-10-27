@@ -37,13 +37,24 @@ TRIGGER_CLASSES = 141  # 0..140 (value * 140)
 
 # ---- features --------------------------------------------------------------------------
 # (column, scale): the model sees value / scale, so most features land roughly in -3..3.
-NUMERIC = [
+# Two versions exist so older checkpoints stay usable:
+#   v1 - the first feature set (data/m2)
+#   v2 - adds frame-to-frame VELOCITY CHANGES at a fine scale (data/m2_v2). Why: replay tests
+#        showed most desyncs come from the exact analog stick value (e.g. air drift changes
+#        velocity by 0.08 x stick for Fox), which is visible in velocity changes of ~0.01.
+NUMERIC_V1 = [
     ("x", 100.0), ("y", 100.0), ("dx", 3.0), ("dy", 3.0),
     ("vel_air_x", 3.0), ("vel_ground_x", 3.0), ("vel_y", 3.0),
     ("vel_knockback_x", 3.0), ("vel_knockback_y", 3.0),
     ("percent", 100.0), ("shield", 60.0), ("stocks", 4.0), ("hitlag", 10.0),
     ("action_frame", 30.0), ("jumps", 2.0), ("airborne", 1.0), ("facing", 1.0),
 ]
+NUMERIC_V2 = NUMERIC_V1 + [
+    ("dvel_air_x", 0.1), ("dvel_ground_x", 0.1), ("dvel_y", 0.1),
+    ("dvel_knockback_x", 0.1), ("dvel_knockback_y", 0.1), ("dx_fine", 0.3), ("dy_fine", 0.3),
+]
+FEATURE_SETS = {"v1": NUMERIC_V1, "v2": NUMERIC_V2}
+NUMERIC = NUMERIC_V1  # default, kept for older code
 # (column, vocabulary size): values >= size are clipped to size - 1.
 CATEGORICAL = [
     ("action", 512), ("character", 40), ("ground", 256), ("hurtbox_state", 4),
@@ -56,7 +67,7 @@ CAT_FEATURES = len(CATEGORICAL)
 STAGE_INDEX = {2: 0, 3: 1, 8: 2, 28: 3, 31: 4, 32: 5}
 
 
-def game_arrays(parquet_path, stage_id):
+def game_arrays(parquet_path, stage_id, feature_set="v1"):
     """Load one parsed game and return (num, cat, tgt, btn) for frames >= 0."""
     full = pd.read_parquet(parquet_path)
     # Button edges need the previous frame, so compute them on the full table first
@@ -78,9 +89,12 @@ def game_arrays(parquet_path, stage_id):
     x, y = col("x"), col("y")
     dx = np.vstack([np.zeros((1, 2), np.float32), np.diff(x, axis=0)])
     dy = np.vstack([np.zeros((1, 2), np.float32), np.diff(y, axis=0)])
-    extra = {"dx": dx, "dy": dy}
+    extra = {"dx": dx, "dy": dy, "dx_fine": dx, "dy_fine": dy}
+    for name in ["vel_air_x", "vel_ground_x", "vel_y", "vel_knockback_x", "vel_knockback_y"]:
+        v = col(name)
+        extra["d" + name] = np.vstack([np.zeros((1, 2), np.float32), np.diff(v, axis=0)])
 
-    num = np.stack([(extra[c] if c in extra else col(c)) / s for c, s in NUMERIC], axis=-1)
+    num = np.stack([(extra[c] if c in extra else col(c)) / s for c, s in FEATURE_SETS[feature_set]], axis=-1)
     num = np.clip(num, -50, 50).astype(np.float32)  # guards against rare garbage values
 
     stage = np.full((n, 2), STAGE_INDEX.get(int(stage_id), 7), np.float32)
