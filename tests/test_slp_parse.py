@@ -17,7 +17,7 @@ import pytest
 
 from vid2slp.slp_parse import FIRST_FRAME, last_copy_rows, parse_replay
 
-OLD_ROOT = "/home/prompter/yt2slp"
+OLD_ROOT = "/home/prompter/ssbm-vid2slp/data"   # replays live in data/recordings (moved here 2026-10-27)
 ROLLBACK_REPLAY = OLD_ROOT + "/recordings/examples/Game_20260425T023703.slp"  # has 3 duplicate frame ids
 
 

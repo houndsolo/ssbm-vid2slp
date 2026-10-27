@@ -31,7 +31,7 @@ simulator for checking predicted inputs. Facts found with `scripts/m2_resim_prob
 | Z | Sets the A bit too and always gives a 0.35 processed trigger. |
 | D-pad up | It's the taunt; must be written (used in ~15% of games). |
 
-Running Dolphin here: inside the old `yt2slp-render:gcc14` Docker image (this server lacks
+Running Dolphin here: inside the `vid2slp-render:gcc14` Docker image (built by the old project; renamed from yt2slp-render) (this server lacks
 its OpenGL library), with `--shm-size=2g` (otherwise it aborts instantly), under Xvfb.
 About 25–60 frames per second per instance; 4 in parallel loads the 16-core CPU fully.
 

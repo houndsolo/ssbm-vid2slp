@@ -3,7 +3,7 @@ check_label_alignment.py - do the old corpus labels line up with the video frame
 
 READ-ONLY. Clips are read from data/old_pilot/ (moved there from the old project by
 scripts/rescue_old_pilot_clips.py); the source .slp files are read from
-/home/prompter/yt2slp/recordings/. Outputs go to data/audit/ and docs/audit/.
+data/recordings/ (was /home/prompter/yt2slp/recordings/). Outputs go to data/audit/ and docs/audit/.
 
 The old corpus stores, for every clip:
   - source.mp4         : 1200 rendered video frames
@@ -46,7 +46,7 @@ import cv2
 import numpy as np
 import peppi_py
 
-OLD = "/home/prompter/yt2slp"
+OLD = "data"   # shard["file"] paths like recordings/... are relative to data/ since 2026-10-27
 BASE = "data/old_pilot"
 DATA_OUT = "data/audit"
 SHEET_OUT = "docs/audit"

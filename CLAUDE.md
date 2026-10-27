@@ -16,7 +16,8 @@ Network engineer learning automation/Linux; NOT a software developer.
 ## Machine and hardware constraints
 - Work happens on the V100 server as user `prompter`.
 - This project: /home/prompter/ssbm-vid2slp
-- Old Codex project: /home/prompter/yt2slp (READ-ONLY, see "Old attempt" below)
+- Old Codex project: /home/prompter/yt2slp was removed 2026-10-27 (owner's request);
+  its last useful pieces now live in data/recordings and data/tools (see "Old attempt" below)
 - GPU: V100 32GB (compute capability sm_70).
 - torch must be cu126 wheels, torch<2.15 (newer wheels dropped Volta).
 - fp16 autocast + GradScaler only (no bf16).
@@ -51,21 +52,22 @@ C) Assembly: states -> inputs -> write .slp, then verify by playing the result
 - Its README is out of date relative to its experiments. Treat doc claims as
   unverified. Trust only numbers you measure yourself on held-out data.
 
-## Old attempt: what is left (audited and cleaned up 2026-10-26)
+## Old attempt: what is left (audited 2026-10-26, moved here 2026-10-27)
 The audit is in docs/audit-old-assets.md. On 2026-10-26 the owner approved deleting
-the old generated corpora, training runs and caches (~530 GB). What remains, and
-should be treated as READ-ONLY inputs:
-- /home/prompter/yt2slp/recordings/ : the owner's .slp library (4,755 files) and
-  vanilla.iso (NTSC 1.02). This is the ONLY copy of the replays; never delete it.
-- /home/prompter/yt2slp/.docker-state/local/playback/squashfs-root/AppRun : Slippi
-  Playback Dolphin 3.5.2 (the renderer the old corpus used).
-- /home/prompter/yt2slp/.docker-state/build/ : the native engine build (melee_headless),
-  kept for Stage C re-simulation. Also kept: local/assets, local/native-* folders.
-- Docker image yt2slp-render:gcc14 (built FROM yt2slp-dev:gcc14): the renderer; keep both.
+the old generated corpora, training runs and caches (~530 GB). On 2026-10-27 the owner
+approved removing everything else of the old project (code, git, venvs, caches, run outputs,
+~/train-* and ~/prepare-* launcher links, stopped containers) and moving the useful pieces
+into this project (scripts/relocate_old_project.sh; /home/prompter/yt2slp no longer exists).
+Treat these as READ-ONLY inputs (all gitignored):
+- data/recordings/ : the owner's .slp library (4,755 .slp + 2 other files) and
+  vanilla.iso (NTSC 1.02). This is the ONLY copy of the replays; NEVER delete it.
+  Made read-only with chmod -R a-w (undo with chmod -R u+w only if truly needed).
+- data/tools/playback/squashfs-root/AppRun : Slippi Playback Dolphin 3.5.2 (the renderer).
+- data/tools/native-engine/ : the old native engine build (build/, melee_headless),
+  assets/ and native-* folders, kept for Stage C re-simulation.
+- Docker images vid2slp-render:gcc14 (built FROM vid2slp-dev:gcc14): the renderer; keep both.
+  (Renamed from yt2slp-render / yt2slp-dev on 2026-10-27; same image IDs.)
 - Old code: only in reference/yt2slp (clone of commit 17a9abe, includes docker/Dockerfile*).
-  On 2026-10-27 the owner approved removing everything else of the old project: its code,
-  git, venvs, caches, run outputs, the ~/train-* and ~/prepare-* launcher links and its
-  stopped containers. Only the items listed above remain in /home/prompter/yt2slp.
 Moved into this project:
 - data/old_pilot/ : the 284 old clips (mp4 + labels.json), verified frame-aligned.
 - reference/old-results/ : result JSONs of the old root-tracking/controller models.
@@ -109,7 +111,7 @@ Report back in plain English, with numbers:
 ## Layout
 - src/vid2slp/  library code (parsing, models, assembly)
 - scripts/      small runnable scripts, one job each, heavily commented
-- data/         parsed SLP tables, renders (gitignored)
+- data/         replays (data/recordings), tools, parsed SLP tables, renders (gitignored)
 - docs/         experiments.md, notes
 - tests/        pytest checks, including label/frame alignment tests
-- reference/    read-only notes about the old project (code stays in /home/prompter/yt2slp)
+- reference/    read-only notes and code of the old project (reference/yt2slp)

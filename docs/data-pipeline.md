@@ -5,7 +5,7 @@ Turns the .slp replay library into per-frame tables for training. CPU only, ~1 m
 ## Rebuild everything from scratch
 ```bash
 uv pip install --python .venv/bin/python -e .        # once: lets scripts `import vid2slp`
-.venv/bin/python scripts/build_slp_index.py /home/prompter/yt2slp/recordings   # ~15 s
+.venv/bin/python scripts/build_slp_index.py data/recordings   # ~15 s
 .venv/bin/python scripts/make_splits.py                                         # seed 0
 .venv/bin/python scripts/parse_slps.py                                          # ~15 s
 .venv/bin/python -m pytest -q                                                   # checks

@@ -7,7 +7,7 @@ a NEW .slp of what actually happened. So if we put our own (predicted) inputs in
 the regenerated file tells us exactly what the game does with them. Verified 2026-10-26: an
 unmodified replay regenerates with 100% identical states.
 
-How it runs: inside the old project's Docker image `yt2slp-render:gcc14` (it has the OpenGL
+How it runs: inside the Docker image `vid2slp-render:gcc14` (built by the old project) (it has the OpenGL
 libraries this server lacks, plus Xvfb as a virtual screen). Needs:
   - --shm-size=2g  (with Docker's 64 MB default, Dolphin aborts immediately)
   - the Playback Dolphin 3.5.2 AppImage folder and the NTSC 1.02 ISO, mounted read-only
@@ -27,9 +27,9 @@ import subprocess
 import time
 import uuid
 
-DOLPHIN_DIR = "/home/prompter/yt2slp/.docker-state/local/playback/squashfs-root"
-ISO = "/home/prompter/yt2slp/recordings/vanilla.iso"
-IMAGE = "yt2slp-render:gcc14"
+DOLPHIN_DIR = "/home/prompter/ssbm-vid2slp/data/tools/playback/squashfs-root"
+ISO = "/home/prompter/ssbm-vid2slp/data/recordings/vanilla.iso"
+IMAGE = "vid2slp-render:gcc14"
 
 GECKO = "[Gecko_Enabled]\n$Required: General Codes\n$Required: Slippi Playback\n$Recommended: Slippi Recording\n"
 DOLPHIN_INI = ("[Core]\nCPUThread = {dual}\nDSPHLE = True\nGFXBackend = {backend}\n"

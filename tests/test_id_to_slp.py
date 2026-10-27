@@ -44,7 +44,7 @@ def test_processed_word_rules():
     assert taunt == 1 << BIT["DPAD_UP"]
 
 
-REPLAY = "/home/prompter/yt2slp/recordings/examples/Game_20260425T023703.slp"
+REPLAY = "/home/prompter/ssbm-vid2slp/data/recordings/examples/Game_20260425T023703.slp"
 
 
 @pytest.mark.skipif(not os.path.exists(REPLAY), reason="replay library not present")

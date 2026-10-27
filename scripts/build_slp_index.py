@@ -14,8 +14,9 @@ human, netplay connect codes, start time, and length. Then it marks which games 
 Output: data/index/slp_index.csv  (one row per file; open it in any spreadsheet)
 
 Run:
-    .venv/bin/python scripts/build_slp_index.py /home/prompter/yt2slp/recordings
+    .venv/bin/python scripts/build_slp_index.py data/recordings
     (more folders can be listed after the first)
+    --out FILE writes somewhere else than data/index/slp_index.csv (e.g. to compare first)
 """
 
 import csv
@@ -72,7 +73,12 @@ def describe(path):
 
 
 def main():
+    global OUT
     folders = sys.argv[1:]
+    if "--out" in folders:                   # optional: --out FILE
+        i = folders.index("--out")
+        OUT = folders[i + 1]
+        folders = folders[:i] + folders[i + 2:]
     if not folders:
         sys.exit("usage: build_slp_index.py FOLDER [FOLDER ...]")
     paths = sorted(os.path.join(d, f) for folder in folders

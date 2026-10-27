@@ -9,7 +9,7 @@ length in frames, and how the game ended. Then it prints totals.
 
 Run:
     .venv/bin/python scripts/scan_slp_library.py /path/to/slp/folder
-    .venv/bin/python scripts/scan_slp_library.py /home/prompter/yt2slp/recordings
+    .venv/bin/python scripts/scan_slp_library.py data/recordings
 Writes the per-file table to data/audit/slp_library_<foldername>.csv
 """
 
