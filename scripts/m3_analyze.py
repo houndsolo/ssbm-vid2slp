@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from m3_train import FixedClips  # noqa: E402  (same validation clips as training)
 
 from vid2slp.matchups import wanted_games  # noqa: E402
+from vid2slp.melee_ids import ACTION_NAMES  # noqa: E402
 from vid2slp.perception_data import POS_SCALE  # noqa: E402
 from vid2slp.perception_model import Perception  # noqa: E402
 
@@ -37,21 +38,11 @@ INTERNAL = {0: "Mario", 1: "Fox", 2: "Captain Falcon", 3: "Donkey Kong", 4: "Kir
             12: "Pikachu", 13: "Samus", 14: "Yoshi", 15: "Jigglypuff", 16: "Mewtwo", 17: "Luigi",
             18: "Marth", 19: "Zelda", 20: "Young Link", 21: "Dr. Mario", 22: "Falco", 23: "Pichu",
             24: "Game & Watch", 25: "Ganondorf", 26: "Roy"}
-# a few common action states (ids shared by all characters), for readable confusion lists
-ACTIONS = {14: "Wait (standing)", 15: "WalkSlow", 16: "WalkMiddle", 17: "WalkFast", 18: "Turn",
-           19: "TurnRun", 20: "Dash", 21: "Run", 22: "RunDirect", 23: "RunBrake", 24: "KneeBend (jumpsquat)",
-           25: "JumpF", 26: "JumpB", 27: "JumpAerialF", 28: "JumpAerialB", 29: "Fall", 30: "FallF",
-           31: "FallB", 35: "FallSpecial", 39: "SquatStart", 40: "Squat", 41: "SquatEnd", 42: "Landing",
-           43: "LandingFallSpecial", 65: "Nair", 66: "Fair", 67: "Bair", 68: "Uair", 69: "Dair",
-           87: "DamageFlyHi (launched)", 88: "DamageFlyN (launched)", 89: "DamageFlyLw (launched)",
-           90: "DamageFlyTop (launched)", 91: "DamageFlyRoll (launched)",
-           70: "LandingNair", 71: "LandingFair", 72: "LandingBair", 73: "LandingUair", 74: "LandingDair",
-           178: "GuardOn (shield start)", 179: "Guard (shield)", 180: "GuardOff", 182: "GuardSetOff",
-           233: "RollForward", 234: "RollBackward", 235: "Spotdodge", 236: "Airdodge"}
+# action names (libmelee's; ids 341+ are character-specific, so names there may not fit Fox/Falco)
 
 
 def name(a):
-    return ACTIONS.get(a, f"action {a}")
+    return f"{ACTION_NAMES.get(a, 'action')} ({a})" if a < 341 else f"character-specific {a}"
 
 
 def main():

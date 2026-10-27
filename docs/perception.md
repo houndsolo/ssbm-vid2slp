@@ -86,6 +86,14 @@ Where it fails:
   in the train split), so the next renders should be chosen by character.
 - **Look-alike actions.** Most common real mistakes: the five "launched by a hit" variants
   (DamageFly Hi/N/Lw/Top/Roll), forward vs backward double jump, forward vs back air, shield
-  start vs shield stun. Several of these hinge on facing direction (0.937).
+  start vs powershield (SHIELD_REFLECT; first written as "shield stun" from a wrong id table,
+  corrected with libmelee's names). Several of these hinge on facing direction (0.937).
 - **Damage %** is close but rarely exact (46% within 1%). A dedicated HUD reader, like the
   timer reader, should do better.
+
+## Comparison video (`scripts/m3_compare_video.py`)
+Footage + REAL controller inputs + inputs PREDICTED by the milestone-2 model (from the true
+game states, not from video) + what percep_v1 reads from the video (action, damage %).
+First example: validation game 3c84b7bf805c (Falco vs Fox), 20 s from 1:00 in: main stick
+exactly right on 71% of player-frames, all buttons right on 91%. The video is kept in
+data/m3/compare/ (not in git).
