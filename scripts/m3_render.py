@@ -53,7 +53,8 @@ CRF = 23
 
 def timer_crops_from_video(avi):
     """The timer area of every frame of the lossless video, as one uint8 array [frames, h, w, 3]."""
-    crops = [hud_timer.timer_crop(f.to_ndarray(format="rgb24")) for f in av.open(avi).decode(video=0)]
+    # .copy(): a crop is otherwise a view that keeps the whole frame in memory (~6 GB per game)
+    crops = [hud_timer.timer_crop(f.to_ndarray(format="rgb24")).copy() for f in av.open(avi).decode(video=0)]
     return np.stack(crops)
 
 

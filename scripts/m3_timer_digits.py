@@ -32,7 +32,7 @@ from vid2slp import hud_timer
 sys.path.insert(0, os.path.dirname(__file__))
 import m3_timer_templates  # noqa: E402  (to rebuild the verified calibration frames)
 
-PER_GAME = 3000   # frames sampled per game
+PER_GAME = 150    # frames sampled per game (x ~400 games; more would not fit in memory)
 SEED = 0
 
 
