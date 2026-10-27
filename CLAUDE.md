@@ -61,7 +61,11 @@ should be treated as READ-ONLY inputs:
   Playback Dolphin 3.5.2 (the renderer the old corpus used).
 - /home/prompter/yt2slp/.docker-state/build/ : the native engine build (melee_headless),
   kept for Stage C re-simulation. Also kept: local/assets, local/native-* folders.
-- Old code: /home/prompter/yt2slp (git, commit 17a9abe), cloned in reference/yt2slp.
+- Docker image yt2slp-render:gcc14 (built FROM yt2slp-dev:gcc14): the renderer; keep both.
+- Old code: only in reference/yt2slp (clone of commit 17a9abe, includes docker/Dockerfile*).
+  On 2026-10-27 the owner approved removing everything else of the old project: its code,
+  git, venvs, caches, run outputs, the ~/train-* and ~/prepare-* launcher links and its
+  stopped containers. Only the items listed above remain in /home/prompter/yt2slp.
 Moved into this project:
 - data/old_pilot/ : the 284 old clips (mp4 + labels.json), verified frame-aligned.
 - reference/old-results/ : result JSONs of the old root-tracking/controller models.
