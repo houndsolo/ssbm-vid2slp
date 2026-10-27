@@ -24,13 +24,16 @@ data/parsed/<sha256>.parquet from milestone 1, keyed by the same game frame numb
 Which games: a seeded random sample of each split (train / validation / test, the same
 frozen split as everything else), so test games stay unseen.
 
-Run (inside tmux; resumable, finished games are skipped):
-    .venv/bin/python scripts/m3_render.py --split validation --count 50 --parallel 3
-    .venv/bin/python scripts/m3_render.py --split train --count 400 --parallel 3
+Only Fox-Fox and Fox-Falco games by default (project scope since 2026-10-27; src/vid2slp/matchups.py).
+--count is the number of NEW games: games already rendered (or failed) are left out of the pick.
+
+Run (inside tmux; on the V100 = nvidia-smi GPU 1, 6 in parallel is the measured sweet spot):
+    .venv/bin/python scripts/m3_render.py --split train --count 600 --parallel 6 --gpu 1
     add --gpu 0 to draw on the GT 1030 (much faster; same pictures, checked 2026-10-27)
 """
 
 import argparse
+import glob
 import json
 import os
 import shutil
@@ -44,6 +47,7 @@ import pandas as pd
 import torch
 
 from vid2slp import hud_timer
+from vid2slp.matchups import wanted_games
 from vid2slp.playback import regenerate
 
 OUT = "data/m3/renders"
@@ -107,7 +111,9 @@ def render_one(job):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", required=True, choices=["train", "validation", "test"])
-    ap.add_argument("--count", type=int, required=True)
+    ap.add_argument("--count", type=int, required=True, help="number of NEW games to render")
+    ap.add_argument("--all-matchups", action="store_true",
+                    help="any characters (default: only Fox-Fox and Fox-Falco, the project's scope)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--parallel", type=int, default=3)
     ap.add_argument("--gpu", type=int, default=None,
@@ -121,7 +127,12 @@ def main():
     games = manifest[manifest.split == args.split].merge(index, on="sha256", suffixes=("_m", ""))
     if "error" in games:
         games = games[games["error"].isna()]
-    # shuffle with the seed, then take the first `count`: a bigger --count later keeps the same first games
+    if not args.all_matchups:
+        games = games[games.sha256.isin(wanted_games())]
+    # leave out games already rendered (or tried and failed), so --count means new games
+    tried = {os.path.basename(os.path.dirname(p)) for p in glob.glob(f"{OUT}/*/info.json") + glob.glob(f"{OUT}/*/error.json")}
+    games = games[~games.sha256.isin(tried)]
+    # shuffle with the seed, then take the first `count`
     games = games.sort_values("sha256").sample(frac=1, random_state=args.seed).head(args.count)
     import peppi_py
     jobs = []
@@ -130,7 +141,7 @@ def main():
         jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu))
     # record which games were chosen (with the seed) so the selection is reproducible
     pd.DataFrame([j[:4] for j in jobs], columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
-        f"data/m3/selection_{args.split}_seed{args.seed}_n{args.count}.csv", index=False)
+        f"data/m3/selection_{args.split}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
     print(f"{args.split}: rendering {len(jobs)} games with {args.parallel} in parallel", flush=True)
     t0 = time.time()
     with Pool(args.parallel) as pool:

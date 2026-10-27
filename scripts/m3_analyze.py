@@ -12,7 +12,7 @@ game) and the run's best checkpoint. Prints:
   4. damage %: share of frames within 1 and 5 % of the truth.
 
 Run:
-    .venv/bin/python scripts/m3_analyze.py --run percep_v1
+    .venv/bin/python scripts/m3_analyze.py --run percep_v1 [--fox-only]
 """
 
 import argparse
@@ -27,6 +27,7 @@ import torch
 sys.path.insert(0, os.path.dirname(__file__))
 from m3_train import FixedClips  # noqa: E402  (same validation clips as training)
 
+from vid2slp.matchups import wanted_games  # noqa: E402
 from vid2slp.perception_data import POS_SCALE  # noqa: E402
 from vid2slp.perception_model import Perception  # noqa: E402
 
@@ -57,6 +58,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
     ap.add_argument("--checkpoint", default="best.pt")
+    ap.add_argument("--fox-only", action="store_true",
+                    help="only the run's validation games that are Fox-Fox or Fox-Falco")
     args = ap.parse_args()
     run_dir = f"data/m3/runs/{args.run}"
     cfg = json.load(open(f"{run_dir}/config.json"))
@@ -69,7 +72,10 @@ def main():
     print(f"run {args.run}, checkpoint {args.checkpoint} (step {ck['step']})")
 
     # the validation games the run itself used (recorded in its config)
-    val = FixedClips(cfg["validation_games"], cfg["clip"], size, cfg["val_per_game"])
+    games = cfg["validation_games"]
+    if args.fox_only:
+        games = [g for g in games if g in wanted_games()]
+    val = FixedClips(games, cfg["clip"], size, cfg["val_per_game"])
     loader = torch.utils.data.DataLoader(val, batch_size=8, num_workers=10)
     rows = {k: [] for k in ["game", "slot", "char", "char_p", "act", "act_p", "act_near", "air",
                             "dx", "dy", "pct", "pct_p"]}

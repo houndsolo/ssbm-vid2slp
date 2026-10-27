@@ -33,6 +33,7 @@ import pandas as pd
 import torch
 
 from vid2slp.id_model import lr_at
+from vid2slp.matchups import wanted_games
 from vid2slp.perception_data import BIN_FIELDS, CAT_FIELDS, REG_FIELDS, Game, RandomClips, to_tensors
 from vid2slp.perception_model import Perception, loss_fn
 
@@ -61,14 +62,16 @@ def get_args():
 def rendered_games(split):
     """sha256 of every finished render that belongs to `split`, leaving out games whose playback
     ended early (desynced, see scripts/m3_frame_maps.py) and games whose on-screen timer did
-    not start at 8 minutes (owner's choice 2026-10-27: only standard 8-minute games)."""
+    not start at 8 minutes, and games that are not Fox-Fox or Fox-Falco (owner's choices
+    2026-10-27: only standard 8-minute games, only these matchups)."""
     manifest = pd.read_csv("data/parsed/manifest.csv").set_index("sha256")
     done = []
     for p in glob.glob("data/m3/renders/*/info.json"):
         info = json.load(open(p))
         if not info.get("playback_ended_early", False) and info["timer_start_seconds"] == 480:
             done.append(os.path.basename(os.path.dirname(p)))
-    return sorted(s for s in done if s in manifest.index and manifest.loc[s, "split"] == split)
+    wanted = wanted_games()
+    return sorted(s for s in done if s in manifest.index and manifest.loc[s, "split"] == split and s in wanted)
 
 
 class FixedClips(torch.utils.data.Dataset):
