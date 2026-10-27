@@ -61,4 +61,63 @@ distance penalty (ALiBi) instead of position embeddings. fp16 + GradScaler, Adam
 batch 64 windows, 60k steps (~70 min on the V100). Validation is scored every 5k steps on
 all 353 validation games; the best checkpoint is kept. Test is scored once at the end.
 
-MODEL_RESULTS
+## Results
+
+### Per-frame accuracy (does the model guess the right input?)
+Two training runs, both 60k steps, seed 0; the checkpoint with the best validation score
+(step 55k) was kept. `feat2_v4` adds "physics" features (how much each velocity changed
+since the last frame, and finer position deltas), because the replay tests showed most
+mistakes were the exact analog stick value, which the game turns into a velocity change.
+
+| Validation | Lookup | `base_v3` (v1 features) | `feat2_v4` (v2 features) |
+|---|---|---|---|
+| Whole frame correct | 0.321 | 0.649 | **0.661** |
+| Stick x exact (1 of 161 values) | 0.497 | 0.742 | **0.763** |
+
+`feat2_v4` was chosen on validation, then scored **once** on the test split (344 games,
+opponents never seen in training):
+
+| Test | Always neutral | Lookup | `feat2_v4` |
+|---|---|---|---|
+| Whole frame correct | 0.232 | 0.320 | **0.658** |
+| Stick zone correct, both axes | | 0.415 | **0.795** |
+| Stick x exact | | 0.497 | **0.781** |
+| Press F1 within ±2 frames | 0 | 0.651 | **0.761** |
+
+Validation and test agree closely, so the model is not overfitted to the validation games.
+
+### Replay tests (do the predicted inputs make the game do the same thing?)
+`scripts/m2_resim_eval.py`: 12 games, first 3,600 frames (1 minute). Two tests:
+- *whole-minute*: every frame uses predicted inputs;
+- *splice*: true inputs up to frame k (600, 1200, ..., 3000), predicted after; measure how
+  long the re-simulated game stays identical (exact) and how long the action states agree.
+
+**Resync OFF** (pure simulation from inputs; any small error snowballs):
+
+| | `base_v3` val | `feat2_v4` val | `feat2_v4` test |
+|---|---|---|---|
+| Frames exactly identical after switch (median / p75) | 13 / 38 | 22 / 46 | 48 / 119 |
+| Frames until first action-state difference (median / p75) | 110 / 185 | 124 / 182 | 120 / 234 |
+| Splices still matching after 600 frames | 0% | 3% | 5% |
+| Whole minute: action states matching / mean x error | 0.368 / 47.3 | 0.345 / 52.4 | 0.347 / 48.4 |
+
+**Resync ON** (Slippi Launcher's default, `shouldResync` = true): playback corrects itself
+using the game states stored in the .slp.
+
+| | `base_v3` val | `feat2_v4` test |
+|---|---|---|
+| Whole minute: action states matching / mean x error | 0.981 / 0.3 | 0.978 / 0.2 |
+| After a splice: action states matching / mean x error | 0.983 / 0.20 | 0.981 / 0.19 |
+
+### What this means (and what it does not)
+- Open-loop, the predicted inputs keep the game identical for about 1 second and the same
+  actions for about 2 seconds, then the simulation drifts (a slightly wrong stick value
+  changes a position, which later changes what hits what). This is expected: many inputs are
+  ambiguous and one wrong 1/80 step is enough.
+- With resync, playback stays aligned (98% of frames, sub-unit position error) because it
+  snaps back to the stored states. **Caveat:** in these tests the stored states are the TRUE
+  states from the original replay. In the real pipeline (Stage C) they will be the
+  perception model's estimates, so the result will only be as good as perception.
+  Unverified: how tolerant resync is of imperfect stored states.
+- The per-frame number (66% of frames fully correct) is a strict score: "correct" means the
+  stick zone, C-stick direction, trigger level and all 8 buttons match on that frame.
