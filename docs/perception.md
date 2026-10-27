@@ -52,3 +52,15 @@ Uses the damage % under the portraits instead of the timer: when the replay says
 up at game frame f, the HUD digits should start changing at the video frame labelled f.
 First 5 games: 114 of 122 hits at offset 0 (93.4%), 8 at −1, none later. The old project's
 frame-exact clips gave 94.4% at 0 on the same test, so the labels are frame-exact.
+
+### Full run (400 games, 2026-10-27)
+- 398 of 400 games rendered (4.0 h on the V100); 98.0% of 3.47 M video frames labelled.
+- DigitNet retrained on 317 games: 12,000 of 12,000 held-out timers read right.
+- Some replays store an 8-minute timer while the game showed 2:00. The reader now checks the
+  replay's value against the digits and, if most don't fit, picks the whole-minute start that
+  matches best (ignoring "mm:00 00", which the countdown shows).
+- 3 replays (all from one session, 2026-02-17) **desync** in playback: the game ends early on
+  screen and the video stops matching the replay. Detected by the timer stopping well before
+  the replay's last frame (`playback_ended_early` in info.json) and left out of training.
+- Per-game HUD-% check on all 397 games: 92.9% of 10,240 hits at offset 0, 6.8% at −1;
+  only the 3 desynced games are below 90%. No other desync found by this test.

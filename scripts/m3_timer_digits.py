@@ -14,7 +14,7 @@ Checks printed at the end:
 
 Run:
     .venv/bin/python scripts/m3_timer_digits.py
-Writes src/vid2slp/timer_digitnet.pt (small, kept in git).
+Writes src/vid2slp/timer_digitnet.pt (1.4 MB; a checkpoint, so not in git: rerun this script to make it).
 """
 
 import glob
