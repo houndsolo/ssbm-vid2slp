@@ -51,6 +51,8 @@ def main():
     ap.add_argument("--checkpoint", default="best.pt")
     ap.add_argument("--fox-only", action="store_true",
                     help="only the run's validation games that are Fox-Fox or Fox-Falco")
+    ap.add_argument("--games-from", default=None,
+                    help="use ANOTHER run's validation games (to compare two runs on the same games)")
     args = ap.parse_args()
     run_dir = f"data/m3/runs/{args.run}"
     cfg = json.load(open(f"{run_dir}/config.json"))
@@ -62,8 +64,11 @@ def main():
     model.eval()
     print(f"run {args.run}, checkpoint {args.checkpoint} (step {ck['step']})")
 
-    # the validation games the run itself used (recorded in its config)
+    # the validation games the run itself used (recorded in its config), or another run's
     games = cfg["validation_games"]
+    if args.games_from:
+        games = json.load(open(f"data/m3/runs/{args.games_from}/config.json"))["validation_games"]
+        print(f"scoring on the validation games of run {args.games_from}")
     if args.fox_only:
         games = [g for g in games if g in wanted_games()]
     val = FixedClips(games, cfg["clip"], size, cfg["val_per_game"])
