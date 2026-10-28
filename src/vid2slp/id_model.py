@@ -67,8 +67,13 @@ class Block(nn.Module):
 
 class InverseDynamics(nn.Module):
     def __init__(self, d_model=384, layers=8, heads=8, dropout=0.1, window=256,
-                 num_features=NUM_FEATURES, fp32_encoder=False):
+                 num_features=NUM_FEATURES, fp32_encoder=False, zero_features=()):
         super().__init__()
+        # zero_features: column numbers of numeric features the model must NOT see (they are
+        # multiplied by 0, for both players). Used for ablations, e.g. "does damage % help?".
+        mask = torch.ones(num_features)
+        mask[list(zero_features)] = 0.0
+        self.register_buffer("feature_mask", mask, persistent=False)
         # fp32_encoder: run the first (input) layers in full precision. In fp16, small values
         # like a 0.01 velocity change next to a 2.5 position lose precision.
         self.fp32_encoder = fp32_encoder
@@ -84,6 +89,7 @@ class InverseDynamics(nn.Module):
         self.register_buffer("bias", (-slopes[:, None, None] * dist.abs()[None]).unsqueeze(0), persistent=False)
 
     def forward(self, num, cat):
+        num = num * self.feature_mask.to(num.dtype)
         if self.fp32_encoder:
             with torch.autocast("cuda", enabled=False):
                 x = self.encoder(num.float(), cat)
@@ -180,7 +186,8 @@ def predict_split(model, split, device, window=256, batch=128):
 def build_from_config(cfg, num_features):
     """Recreate a model from a checkpoint's saved config (older configs lack the new keys)."""
     return InverseDynamics(cfg["d_model"], cfg["layers"], cfg["heads"], 0.0, cfg["window"],
-                           num_features=num_features, fp32_encoder=cfg.get("fp32_encoder", False))
+                           num_features=num_features, fp32_encoder=cfg.get("fp32_encoder", False),
+                           zero_features=cfg.get("zero_feature_columns", ()))
 
 
 def count_parameters(model):
