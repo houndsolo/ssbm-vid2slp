@@ -9,7 +9,8 @@ For each chosen game:
      (scripts/m3_frame_maps.py can redo this later for all games, e.g. after retraining it.)
      Why not just count frames: Dolphin skips displaying some game frames (deterministically,
      measured 2026-10-27), so counting drifts by a few frames over a game.
-  3. The video is compressed to H.264 (CRF 23, ~16 MB per minute) -> video.mp4.
+  3. The video is compressed to H.264 -> video.mp4: on the V100 (NVENC, default since
+     2026-10-28) or on the CPU (x264 CRF 23, ~16 MB per minute); see ENCODE below.
   4. Saved next to it:
        - timer_crops.npz: the timer area of every frame, lossless, so the frame map can be
          recomputed with a better timer reader later without re-rendering;
@@ -52,7 +53,19 @@ from vid2slp.playback import regenerate
 
 OUT = "data/m3/renders"
 WORK = "data/m3/work"
-CRF = 23
+CRF = 23      # x264 quality (lower = better/bigger)
+NVENC_CQ = 26  # NVENC quality: chosen 2026-10-28 to match x264 CRF 23 (PSNR 36.9 vs 36.7 dB, +17% size)
+# How the lossless Dolphin dump is compressed to video.mp4 (owner asked for faster renders):
+#   "nvenc" - the V100's built-in video encoder. Measured on a 7,613-frame game: 130 s of CPU
+#             (almost all of it just decoding the lossless input) vs 420 s for x264 medium, and
+#             percep_v2 reads both versions equally (action 0.933 vs 0.932, scripts/m3_encoder_check.py).
+#             Note: ffmpeg numbers NVENC GPUs in CUDA order, where the V100 is 0 (the GT 1030 has no NVENC).
+#   "x264"  - CPU encoder, preset medium (used for all renders before 2026-10-28).
+ENCODE = {
+    "nvenc": ["-c:v", "h264_nvenc", "-gpu", "0", "-preset", "p5", "-tune", "hq", "-rc", "vbr",
+              "-cq", str(NVENC_CQ), "-b:v", "0"],
+    "x264": ["-c:v", "libx264", "-preset", "medium", "-crf", str(CRF)],
+}
 
 
 def timer_crops_from_video(avi):
@@ -63,7 +76,7 @@ def timer_crops_from_video(avi):
 
 
 def render_one(job):
-    sha, slp, last_frame, start_seconds, gpu = job
+    sha, slp, last_frame, start_seconds, gpu, encoder = job
     out = os.path.join(OUT, sha)
     if os.path.exists(os.path.join(out, "info.json")):
         return sha, "skipped"
@@ -81,8 +94,8 @@ def render_one(job):
         torch.set_num_threads(2)  # the network runs on the CPU here; don't fight the renders
         fmap, rejected, shown_start = hud_timer.frame_map_net(crops, last_frame, start_seconds,
                                                              hud_timer.load_digit_net())
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", avi, "-c:v", "libx264", "-preset", "medium",
-                        "-crf", str(CRF), "-pix_fmt", "yuv420p", os.path.join(out, "video.mp4")], check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", avi, *ENCODE[encoder],
+                        "-pix_fmt", "yuv420p", os.path.join(out, "video.mp4")], check=True)
     except Exception as e:  # keep going with the other games; the error is recorded
         json.dump({"sha256": sha, "error": str(e)}, open(os.path.join(out, "error.json"), "w"))
         shutil.rmtree(work, ignore_errors=True)
@@ -100,7 +113,8 @@ def render_one(job):
         "game_frames_skipped_inside": int(labeled.max() - labeled.min() + 1 - len(labeled)) if len(labeled) else None,
         "strictly_increasing": increasing,
         "render_seconds": round(t_render, 1), "total_seconds": round(time.time() - t0, 1),
-        "mp4_bytes": os.path.getsize(os.path.join(out, "video.mp4")), "crf": CRF,
+        "mp4_bytes": os.path.getsize(os.path.join(out, "video.mp4")), "encoder": encoder,
+        **({"crf": CRF} if encoder == "x264" else {"nvenc_cq": NVENC_CQ}),
     }
     json.dump(info, open(os.path.join(out, "info.json"), "w"), indent=1)
     shutil.rmtree(work, ignore_errors=True)
@@ -118,6 +132,8 @@ def main():
     ap.add_argument("--parallel", type=int, default=3)
     ap.add_argument("--gpu", type=int, default=None,
                     help="draw on this NVIDIA GPU (nvidia-smi number; 0 = GT 1030) instead of the CPU")
+    ap.add_argument("--encoder", default="nvenc", choices=list(ENCODE),
+                    help="how to compress the video: nvenc (V100, default) or x264 (CPU)")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
@@ -138,7 +154,7 @@ def main():
     jobs = []
     for row in games.itertuples():
         start_seconds = peppi_py.read_slippi(row.path, skip_frames=True).start.timer
-        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu))
+        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder))
     # record which games were chosen (with the seed) so the selection is reproducible
     pd.DataFrame([j[:4] for j in jobs], columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
         f"data/m3/selection_{args.split}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
