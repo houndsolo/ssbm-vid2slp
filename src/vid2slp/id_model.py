@@ -67,13 +67,17 @@ class Block(nn.Module):
 
 class InverseDynamics(nn.Module):
     def __init__(self, d_model=384, layers=8, heads=8, dropout=0.1, window=256,
-                 num_features=NUM_FEATURES, fp32_encoder=False, zero_features=()):
+                 num_features=NUM_FEATURES, fp32_encoder=False, zero_features=(), zero_cats=()):
         super().__init__()
         # zero_features: column numbers of numeric features the model must NOT see (they are
         # multiplied by 0, for both players). Used for ablations, e.g. "does damage % help?".
         mask = torch.ones(num_features)
         mask[list(zero_features)] = 0.0
         self.register_buffer("feature_mask", mask, persistent=False)
+        # zero_cats: column numbers of CATEGORICAL features the model must not see (set to 0).
+        # Used for the "perceivable features only" model (Stage C): the video model cannot see
+        # e.g. the ground id or the hurtbox state.
+        self.zero_cats = list(zero_cats)
         # fp32_encoder: run the first (input) layers in full precision. In fp16, small values
         # like a 0.01 velocity change next to a 2.5 position lose precision.
         self.fp32_encoder = fp32_encoder
@@ -90,6 +94,9 @@ class InverseDynamics(nn.Module):
 
     def forward(self, num, cat):
         num = num * self.feature_mask.to(num.dtype)
+        if self.zero_cats:
+            cat = cat.clone()
+            cat[..., self.zero_cats] = 0
         if self.fp32_encoder:
             with torch.autocast("cuda", enabled=False):
                 x = self.encoder(num.float(), cat)
@@ -187,7 +194,8 @@ def build_from_config(cfg, num_features):
     """Recreate a model from a checkpoint's saved config (older configs lack the new keys)."""
     return InverseDynamics(cfg["d_model"], cfg["layers"], cfg["heads"], 0.0, cfg["window"],
                            num_features=num_features, fp32_encoder=cfg.get("fp32_encoder", False),
-                           zero_features=cfg.get("zero_feature_columns", ()))
+                           zero_features=cfg.get("zero_feature_columns", ()),
+                           zero_cats=cfg.get("zero_cat_columns", ()))
 
 
 def count_parameters(model):

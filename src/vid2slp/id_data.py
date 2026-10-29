@@ -129,3 +129,31 @@ def load_split(directory, split, mmap=True):
     out["offsets"] = np.load(f"{directory}/{split}_offsets.npy")
     out["sha256"] = open(f"{directory}/{split}_games.txt").read().split()
     return out
+
+
+def arrays_from_states(table, stage_id, feature_set="v2"):
+    """(num, cat) for the inverse-dynamics model from a game-state table that has ONLY the
+    fields perception can see (Stage C): character, action, x, y, facing, percent, stocks,
+    shield, airborne. Fields it cannot see (velocities, hitlag, jumps, ground id, ...) are 0;
+    the "visible features" models (m2_train.py --zero-features/--zero-cats) never look at them.
+
+    table: rows (frame, port) for frames 0..T-1, two ports, like data/m3/pred/<run>/<sha>.parquet.
+    """
+    t = table[table.frame >= 0].sort_values(["frame", "port"])
+    n = len(t) // 2
+
+    def col(name):
+        if name not in t.columns:
+            return np.zeros((n, 2), np.float32)
+        return np.nan_to_num(t[name].to_numpy(dtype=np.float32)).reshape(n, 2)
+
+    x, y = col("x"), col("y")
+    dx = np.vstack([np.zeros((1, 2), np.float32), np.diff(x, axis=0)])
+    dy = np.vstack([np.zeros((1, 2), np.float32), np.diff(y, axis=0)])
+    extra = {"dx": dx, "dy": dy, "dx_fine": dx, "dy_fine": dy}
+    num = np.stack([(extra[c] if c in extra else col(c)) / s for c, s in FEATURE_SETS[feature_set]], axis=-1)
+    num = np.clip(num, -50, 50).astype(np.float32)
+    stage = np.full((n, 2), STAGE_INDEX.get(int(stage_id), 7), np.float32)
+    cat = np.stack([np.clip(stage if c == "stage" else col(c), 0, size - 1) for c, size in CATEGORICAL],
+                   axis=-1).astype(np.int16)
+    return num, cat

@@ -29,7 +29,7 @@ import time
 import numpy as np
 import torch
 
-from vid2slp.id_data import FEATURE_SETS, load_split
+from vid2slp.id_data import CATEGORICAL, FEATURE_SETS, load_split
 from vid2slp.id_metrics import format_scores, score
 from vid2slp.id_model import InverseDynamics, count_parameters, loss_fn, lr_at, predict_split
 
@@ -56,6 +56,8 @@ def get_args():
     ap.add_argument("--fp32-encoder", action="store_true", help="input layers in full precision")
     ap.add_argument("--zero-features", default="",
                     help="comma-separated numeric features to hide from the model, e.g. percent (ablation)")
+    ap.add_argument("--zero-cats", default="",
+                    help="comma-separated categorical features to hide, e.g. ground,hurtbox_state")
     return ap.parse_args()
 
 
@@ -110,9 +112,12 @@ def main():
     version = open(f"{args.data}/features.txt").read().strip() if os.path.exists(f"{args.data}/features.txt") else "v1"
     feature_names = [c for c, _ in FEATURE_SETS[version]]
     args.zero_feature_columns = [feature_names.index(f) for f in args.zero_features.split(",") if f]
+    cat_names = [c for c, _ in CATEGORICAL]
+    args.zero_cat_columns = [cat_names.index(f) for f in args.zero_cats.split(",") if f]
     model = InverseDynamics(args.d_model, args.layers, args.heads, args.dropout, args.window,
                             num_features=g_num.shape[-1], fp32_encoder=args.fp32_encoder,
-                            zero_features=args.zero_feature_columns).to(device)
+                            zero_features=args.zero_feature_columns,
+                            zero_cats=args.zero_cat_columns).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.98))
     scaler = torch.amp.GradScaler("cuda")
     step, best = 0, -1.0
