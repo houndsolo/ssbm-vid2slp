@@ -1,0 +1,572 @@
+diff --git a/port/linux/headless/CMakeLists.txt b/port/linux/headless/CMakeLists.txt
+index 1af4548..17f5848 100644
+--- a/port/linux/headless/CMakeLists.txt
++++ b/port/linux/headless/CMakeLists.txt
+@@ -17,9 +17,10 @@ if(NOT MELEE_CPU_BASELINE MATCHES "^(AVX2|AVX|SSE2)$")
+   message(FATAL_ERROR "Unknown MELEE_CPU_BASELINE")
+ endif()
+ add_library(headless_services STATIC ../host_services.cpp ../input_script.cpp ../retrace_control.cpp ../process_checkpoint.cpp
++  ../replay_source.cpp "${PORT}/third_party/slippilib/SlippiGame.cpp"
+   "${PORT}/runtime/hle/ax_ucode.cpp" "${PORT}/runtime/hle/native_replay_stream.cpp")
+ target_compile_features(headless_services PUBLIC cxx_std_17)
+-target_include_directories(headless_services PUBLIC .. "${PORT}/runtime/abi"
++target_include_directories(headless_services PUBLIC .. "${PORT}/third_party" "${PORT}/runtime/abi"
+   "${PORT}/runtime/hle" "${PORT}/runtime/host")
+ target_compile_options(headless_services PRIVATE -Wall -Wextra -fno-strict-aliasing -ffp-contract=on)
+ target_link_libraries(headless_services PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
+diff --git a/port/linux/host_services.cpp b/port/linux/host_services.cpp
+index 349b2a8..f31cda5 100644
+--- a/port/linux/host_services.cpp
++++ b/port/linux/host_services.cpp
+@@ -6,6 +6,7 @@
+ #include "host_services.h"
+ #include "input_script.h"
+ #include "native_replay_stream.h"
++#include "replay_source.h"
+ #include "process_checkpoint.h"
+ #include "ax_ucode.h"
+ #include "disc_archive.h"
+@@ -812,6 +813,17 @@ void h_resim(int32_t entering) { resimulating = entering != 0; }
+ 
+ slippi::NativeReplayStream recording;
+ void h_replay_event(uint8_t command, const uint8_t* payload, uint32_t size) {
++  if (replay::active()) {
++    // vid2slp: replay playback records the played-back game, as the desktop host does: the
++    // recording starts from the original Game Start and code list, then takes every event.
++    // (begin_slippi: Dolphin's full command table, so parsers find every event type, Game End too)
++    if (!recording.active() && !recording.begin_slippi(replay::game_start_payload(), replay::gecko_codes(),
++                                                       946684800 + boot_ticks / 40500000))
++      throw std::runtime_error(recording.error());
++    if (!recording.ended() && !recording.append(command, payload, size))
++      throw std::runtime_error(recording.error());
++    return;
++  }
+   if (!cfg.vanilla_game) return; // Non-vanilla code lists/options are not integrated here.
+   if (command == 0x36) {
+     if (recording.active()) throw std::runtime_error("recording: second match requires a new session");
+@@ -852,6 +864,9 @@ MuHostApi make_api() {
+   h.display_options=h_zero_u32; h.music_volume=h_music; h.native_draw_identity=h_zero_i32;
+   h.mod_flags=h_zero_u32; h.slippi_command=h_slippi; h.resim_phase=h_resim;
+   h.replay_event=h_replay_event;
++  if (replay::active()) {   // vid2slp: Slippi replay playback (host API version 9)
++    h.replay_start=replay::start; h.replay_frame=replay::frame; h.replay_stock_steal=replay::stock_steal;
++  }
+   // The game calls this after Game End and on match exit. The event sink owns
+   // all recording data; completion never writes a file or invents an ending.
+   h.replay_finished=h_void;
+@@ -973,6 +988,11 @@ bool initialize(const Config& config, std::string* error) {
+   auto startup_failed = [&] { shutdown(); return false; };
+   if (!reserve_memory(error)) return startup_failed();
+   if (!cfg.input_script.empty() && !input_script.load(cfg.input_script,error)) return startup_failed();
++  // vid2slp: a replay to play (before make_api, which installs the replay callbacks)
++  if (!cfg.replay_path.empty() && !replay::load(cfg.replay_path, cfg.replay_sys_dir, cfg.replay_resync)) {
++    fail(error, "cannot load replay " + cfg.replay_path);
++    return startup_failed();
++  }
+   // Linux uses the game's own native AX music stream until a native jukebox
+   // service is wired. Keep ordinary Melee Unlocked gameplay options enabled.
+   if (!std::getenv("MELEE_NO_JUKEBOX")) setenv("MELEE_NO_JUKEBOX","1",0);
+@@ -1033,13 +1053,13 @@ int run() {
+ }
+ 
+ RecordingStatus recording_status() {
+-  if (!cfg.vanilla_game || !recording.active())
++  if ((!cfg.vanilla_game && !replay::active()) || !recording.active())
+     throw std::runtime_error("no active vanilla recording");
+   return {recording.last_frame(), recording.ended()};
+ }
+ 
+ std::vector<uint8_t> recorded_replay() {
+-  if (!cfg.vanilla_game || !recording.active() || recording.last_frame() < 0)
++  if ((!cfg.vanilla_game && !replay::active()) || !recording.active() || recording.last_frame() < 0)
+     throw std::runtime_error("recording requires a vanilla match with gameplay events");
+   auto bytes = recording.encode();
+   if (bytes.empty()) throw std::runtime_error("recording: " + recording.error());
+@@ -1231,3 +1251,8 @@ void log(const char* format, ...) {
+   linux_host::log("%s", line);
+ }
+ } // namespace host
++
++// vid2slp: replay_source.cpp logs through the host's log.
++namespace linux_host {
++void replay_log(const char* text) { host::log("%s", text); }
++}
+diff --git a/port/linux/host_services.h b/port/linux/host_services.h
+index f1c4aed..ca182c7 100644
+--- a/port/linux/host_services.h
++++ b/port/linux/host_services.h
+@@ -38,6 +38,10 @@ struct Config {
+   bool has_stock_rules = false;
+   int32_t stock_seconds = 0;
+   int32_t stock_count = 0;
++  // vid2slp: play a Slippi replay (replay_source.h). sys dir = a Slippi Playback Sys folder.
++  std::string replay_path;
++  std::string replay_sys_dir;
++  bool replay_resync = false;
+ };
+ 
+ struct Counters {
+diff --git a/port/linux/main.cpp b/port/linux/main.cpp
+index 1c4a066..0e81efc 100644
+--- a/port/linux/main.cpp
++++ b/port/linux/main.cpp
+@@ -2,6 +2,7 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ #include "host_services.h"
+ #include "retrace_control.h"
++#include "replay_source.h"
+ #include <memory>
+ #include <cerrno>
+ #include <cstdio>
+@@ -81,6 +82,7 @@ void usage() {
+             "              [--stock-rules 'seconds stocks'] (60..600 in whole minutes; 1..4 stocks)\n"
+             "              [--control-fd N --boot-limit N] (headless/fast; one VI per step)\n"
+             "              [--control-preroll] (pause as soon as both fighters exist)\n"
++            "              [--replay file.slp [--replay-sys SysDir] [--replay-resync]] (vid2slp)\n"
+             "  melee_linux --memory-self-test | --version\n"
+             "\nRequires a retail NTSC 1.02 ISO. Default display: 120 FPS; gameplay: 60 Hz.\n"
+             "Keyboard: arrows = stick, Z/X/C/V = A/B/X/Y, Enter = Start,\n"
+@@ -205,6 +207,10 @@ int main(int argc, char** argv) {
+         if (value > UINT32_MAX) throw std::runtime_error("rng seed exceeds uint32");
+         config.has_rng_seed = true; config.rng_seed = static_cast<uint32_t>(value);
+       }
++      // vid2slp: play a Slippi replay (inputs from the file unless overridden over --control-fd)
++      else if (arg == "--replay") config.replay_path = next();
++      else if (arg == "--replay-sys") config.replay_sys_dir = next();
++      else if (arg == "--replay-resync") config.replay_resync = true;
+       else if (arg == "--time-base") {
+         config.has_time_base = true; config.time_base = number(next(), "time base");
+       }
+@@ -234,8 +240,9 @@ int main(int argc, char** argv) {
+ #ifndef MELEE_LINUX_GRAPHICS
+     if (!config.headless) throw std::runtime_error("this build has no graphics; rebuild with MELEE_LINUX_GRAPHICS=ON");
+ #endif
+-    if (control_fd >= 0 && (!config.headless || config.pace || config.max_frames || !config.has_match))
+-      throw std::runtime_error("control requires --headless --fast --match, without --frames");
++    if (control_fd >= 0 && (!config.headless || config.pace || config.max_frames ||
++                            (!config.has_match && config.replay_path.empty())))
++      throw std::runtime_error("control requires --headless --fast --match (or --replay), without --frames");
+     if (config.has_stock_rules && !config.has_match)
+       throw std::runtime_error("--stock-rules requires an explicit --match");
+     config.volatile_card = control_fd >= 0;
+@@ -265,6 +272,8 @@ int main(int argc, char** argv) {
+           if (!observer.digest) throw std::runtime_error("cannot flush checkpoint trace");
+         }
+       }, linux_host::recorded_replay, linux_host::recording_status, control_preroll);
++    if (observer.control && !config.replay_path.empty())
++      observer.control->set_command_handler(linux_host::replay::command);
+     if (observer.control || observer.digest.is_open()) linux_host::set_frame_observer(observe, &observer);
+     const int result = linux_host::run();
+ #ifdef MELEE_LINUX_GRAPHICS
+diff --git a/port/linux/replay_source.cpp b/port/linux/replay_source.cpp
+new file mode 100644
+index 0000000..3c1c812
+--- /dev/null
++++ b/port/linux/replay_source.cpp
+@@ -0,0 +1,308 @@
++// vid2slp addition: Slippi replay playback for the headless Linux host. See replay_source.h.
++// Ported from port/app/source_host.cpp (set_replay, h_replay_frame, replay_codes,
++// read_replay_event) and port/runtime/hle/slippi_playback.cpp (gameplay_codes), without the
++// desktop viewer's controls, mod profiles and spectator output.
++// SPDX-License-Identifier: GPL-2.0-or-later
++#include "replay_source.h"
++
++#include "slippilib/SlippiGame.h"
++#include <nlohmann/json.hpp>
++
++#include <algorithm>
++#include <array>
++#include <cstdarg>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <map>
++#include <memory>
++#include <sstream>
++#include <unordered_map>
++#include <utility>
++
++namespace linux_host {
++void replay_log(const char* text);   // host_services.cpp (the host's log)
++}
++
++namespace linux_host::replay {
++namespace {
++
++std::unique_ptr<Slippi::SlippiGame> game;
++MuReplayStart start_info{};
++std::vector<uint8_t> start_payload;
++std::vector<uint8_t> codes_list;
++
++// Overrides from the controller, by (frame, port).
++struct InputOverride { float f[5]; uint32_t buttons; uint8_t raw[4]; };
++struct StateOverride { float x, y, facing; uint32_t action; float percent; };
++std::map<std::pair<int32_t, int32_t>, InputOverride> input_overrides;
++std::map<std::pair<int32_t, int32_t>, StateOverride> state_overrides;
++
++void logf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
++void logf(const char* fmt, ...) {
++  char line[512];
++  va_list args;
++  va_start(args, fmt);
++  std::vsnprintf(line, sizeof line, fmt, args);
++  va_end(args);
++  replay_log(line);
++}
++
++uint32_t be32(const uint8_t* p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
++
++// The raw payload of one event (e.g. 0x36 Game Start) from the file (source_host.cpp).
++std::vector<uint8_t> read_event(const std::string& path, uint8_t wanted) {
++  std::ifstream f(path, std::ios::binary);
++  std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
++  static const char tag[] = "raw[$U#l";
++  auto it = std::search(d.begin(), d.end(), tag, tag + 8);
++  if (it == d.end()) return {};
++  size_t i = (size_t)(it - d.begin()) + 8 + 4;
++  if (i + 2 > d.size() || d[i] != 0x35) return {};
++  if (d[i + 1] < 1 || (d[i + 1] - 1) % 3) return {};
++  const size_t count = (d[i + 1] - 1) / 3;
++  std::array<int32_t, 256> sizes;
++  sizes.fill(-1);
++  for (size_t k = 0; k < count; ++k) {
++    const size_t e = i + 2 + 3 * k;
++    if (e + 3 > d.size()) return {};
++    sizes[d[e]] = (uint32_t)d[e + 1] << 8 | d[e + 2];
++  }
++  const uint32_t raw_size = be32(d.data() + i - 4);
++  if (raw_size && raw_size > d.size() - i) return {};
++  const size_t end = raw_size ? i + raw_size : d.size();
++  for (size_t pos = i + 1 + d[i + 1]; pos < end;) {
++    const uint8_t command = d[pos++];
++    if (sizes[command] < 0 || (size_t)sizes[command] > end - pos) return {};
++    const size_t size = (size_t)sizes[command];
++    if (command == wanted) return std::vector<uint8_t>(d.begin() + pos, d.begin() + pos + size);
++    pos += size;
++  }
++  return {};
++}
++
++// Which injection addresses do NOT affect gameplay (slippi_playback.cpp build_denylist_in).
++std::unordered_map<uint32_t, bool> build_denylist(const std::string& sys_dir) {
++  std::unordered_map<uint32_t, bool> deny = {
++      {0x802fef88, true}, {0x8006c5d8, true}, {0x8016d30c, true}, {0x8016e9b4, true},
++      {0x802f6690, true}, {0x802F71E0, true}, {0x80071960, true}, {0x800CC818, true}, {0x8008A478, true},
++  };
++  std::filesystem::path dir = std::filesystem::path(sys_dir) / "Slippi" / "InjectionLists";
++  std::vector<std::pair<int, std::filesystem::path>> files;
++  std::error_code ec;
++  for (auto& e : std::filesystem::directory_iterator(dir, ec)) {
++    if (!e.is_regular_file()) continue;
++    std::string stem = e.path().stem().string();
++    size_t us = stem.find_last_of('_');
++    int num = 0;
++    if (us != std::string::npos) num = std::atoi(stem.substr(us + 1).c_str());
++    files.push_back({num, e.path()});
++  }
++  if (files.empty()) logf("replay: no injection lists in %s; every code counts as gameplay", dir.c_str());
++  std::stable_sort(files.begin(), files.end(), [](auto& a, auto& b) { return a.first < b.first; });
++  for (auto& [num, path] : files) {
++    std::ifstream f(path);
++    std::string contents((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
++    auto res = nlohmann::json::parse(contents, nullptr, false);
++    if (res.is_discarded() || !res.is_object() || !res.count("Details") || !res["Details"].is_array()) continue;
++    for (auto& inj : res["Details"]) {
++      if (!inj.is_object()) continue;
++      std::string tags = inj.count("Tags") && inj["Tags"].is_string() ? inj["Tags"].get<std::string>() : "";
++      std::string addr = inj.count("InjectionAddress") && inj["InjectionAddress"].is_string()
++                             ? inj["InjectionAddress"].get<std::string>() : "";
++      if (addr.empty()) continue;
++      deny[(uint32_t)std::strtoul(addr.c_str(), nullptr, 16)] = tags.find("[affects-gameplay]") == std::string::npos;
++    }
++  }
++  deny[0x8038add0] = true;
++  deny[0x80023FFC] = true;
++  deny[0x802F9A3C] = true;
++  deny[0x802F84C8] = true;
++  deny[0x8002A104] = true;
++  return deny;
++}
++
++// The replay's gameplay codes as a MU_REPLAY_CODE_* mask (source_host.cpp replay_codes).
++uint32_t replay_codes(const std::vector<uint8_t>& list, const std::string& sys_dir, uint8_t* ps_frozen_toggle) {
++  struct Known { uint32_t address; uint32_t code; };
++  static const Known known[] = {
++      {0x800D65EC, MU_REPLAY_CODE_UCF084}, {0x800C9A44, MU_REPLAY_CODE_UCF084}, {0x8006B460, MU_REPLAY_CODE_UCF084},
++      {0x8008E54C, MU_REPLAY_CODE_UCF084}, {0x8009A0B8, MU_REPLAY_CODE_UCF084}, {0x800998A4, MU_REPLAY_CODE_UCF084},
++      {0x80093294, MU_REPLAY_CODE_UCF084}, {0x800908F4, MU_REPLAY_CODE_UCF084},
++      {0x8016E510, MU_REPLAY_CODE_NEUTRAL_SPAWN}, {0x801239A8, MU_REPLAY_CODE_FREEZE_GLITCH},
++      {0x801C154C, MU_REPLAY_CODE_INIT_STAGE_DATA}, {0x80068EEC, MU_REPLAY_CODE_INIT_PLAYER_DATA},
++      {0x8006A880, MU_REPLAY_CODE_OFFSCREEN_DAMAGE},
++      {0x800D4C1C, MU_REPLAY_CODE_DEAD_UP_FALL}, {0x800D4D68, MU_REPLAY_CODE_DEAD_UP_FALL},
++      {0x80080E80, MU_REPLAY_CODE_DEAD_UP_FALL},
++      {0x8021AAE4, MU_REPLAY_CODE_FD_BG_SEED}, {0x801C65C8, MU_REPLAY_CODE_PS_ZERO_BUFFER},
++      {0x801D4760, MU_REPLAY_CODE_PS_IS_VALID}, {0x801D457C, MU_REPLAY_CODE_PS_FROZEN_CHECK},
++      {0x800165AC, MU_REPLAY_CODE_PS_FILE_LOAD}, {0x8008653C, MU_REPLAY_CODE_WHISPY_FIX},
++      {0x800AC5B8, MU_REPLAY_CODE_NANA_DETERMINISM}, {0x801D24FC, MU_REPLAY_CODE_PS_MONITOR},
++      {0x800DB880, MU_REPLAY_CODE_PREVENT_WOBBLING}, {0x800DBBD4, MU_REPLAY_CODE_PREVENT_WOBBLING},
++      {0x8008F090, MU_REPLAY_CODE_PREVENT_WOBBLING},
++      {0x80179378, 0}, {0x8017900C, 0}, {0x8017A890, 0}, {0x8000568C, 0}, {0x802F84C8, 0},
++  };
++  auto deny = build_denylist(sys_dir);
++  uint32_t codes = 0;
++  size_t idx = 0, kept = 0, unknown = 0;
++  while (idx + 8 <= list.size()) {   // walk the Gecko list (slippi_playback.cpp gameplay_codes)
++    const uint8_t type = list[idx] & 0xFE;
++    uint32_t address = be32(&list[idx]);
++    address = (address & 0x01FFFFFF) | 0x80000000;
++    const uint32_t word = be32(&list[idx + 4]);
++    size_t len = 8;
++    if (type == 0xC0 || type == 0xC2) len = 8 + (size_t)word * 8;
++    else if (type == 0x08) len = 16;
++    else if (type == 0x06) len = 8 + ((word + 7) & ~7u);
++    if (idx + len > list.size()) break;
++    auto it = deny.find(address);
++    const bool denied = it != deny.end() && it->second;
++    if (!denied) {
++      ++kept;
++      const Known* k = nullptr;
++      for (const auto& e : known) if (e.address == address) { k = &e; break; }
++      if (!k) {
++        ++unknown;
++        logf("replay: code %08X (type %02X) is not implemented natively; this replay may diverge", address, type);
++        if ((address == 0x800C9A44 || address == 0x800998A4) && !(codes & MU_REPLAY_CODE_UCF084))
++          codes |= MU_REPLAY_CODE_UCF_OTHER;
++      } else {
++        codes |= k->code;
++        if (address == 0x801D457C && len >= 8 + 12) *ps_frozen_toggle = list[idx + 8 + 8];
++      }
++    }
++    idx += len;
++  }
++  logf("replay: code list %zu bytes, %zu gameplay codes kept, %zu not native; codes mask %08X",
++       list.size(), kept, unknown, codes);
++  return codes;
++}
++
++}  // namespace
++
++bool load(const std::string& path, const std::string& sys_dir, bool resync) {
++  game = Slippi::SlippiGame::FromFile(path);
++  if (!game || !game->AreSettingsLoaded()) {
++    logf("replay: cannot read %s", path.c_str());
++    game.reset();
++    return false;
++  }
++  start_payload = read_event(path, 0x36);
++  if (start_payload.empty()) {
++    logf("replay: %s has no Game Start event", path.c_str());
++    game.reset();
++    return false;
++  }
++  Slippi::GameSettings* s = game->GetSettings();
++  codes_list = s->geckoCodes;
++  std::array<uint32_t, Slippi::GAME_INFO_HEADER_SIZE> header = s->header;
++  // Dolphin's prepareGameInfo: a player who is Sheik or Zelda gets that character in the header.
++  for (int i = 0; i < 4; ++i) {
++    if (!game->DoesPlayerExist((int8_t)i)) continue;
++    const uint8_t ext = s->players[(uint8_t)i].characterId;
++    if (ext != 0x12 && ext != 0x13) continue;
++    header[24 + 9 * i] = (header[24 + 9 * i] & 0x00FFFFFFu) | (uint32_t)ext << 24;
++  }
++  for (int i = 0; i < Slippi::GAME_INFO_HEADER_SIZE; ++i)
++    for (int b = 0; b < 4; ++b) start_info.game_info[4 * i + b] = (uint8_t)(header[i] >> (24 - 8 * b));
++  start_info.random_seed = s->randomSeed;
++  start_info.is_pal = s->isPAL;
++  auto version = game->GetVersion();
++  start_info.preload_ps = version[0] > 1 || (version[0] == 1 && version[1] > 2);
++  start_info.frozen_ps = s->isFrozenPS;
++  start_info.resync = resync ? 1 : 0;
++  if (codes_list.empty()) logf("replay: %s stores no code list (old replay); playing without gameplay codes", path.c_str());
++  start_info.codes = replay_codes(codes_list, sys_dir, &start_info.ps_frozen_toggle);
++  logf("replay: %s, Slippi %s, frames %d..%d, stage %u, seed %08X, frozen PS %u%s", path.c_str(),
++       game->GetVersionString().c_str(), Slippi::GAME_FIRST_FRAME, game->GetLatestIndex(),
++       (unsigned)s->stage, s->randomSeed, (unsigned)s->isFrozenPS, resync ? ", resync on" : "");
++  return true;
++}
++
++bool active() { return game != nullptr; }
++const MuReplayStart* start() { return game ? &start_info : nullptr; }
++const std::vector<uint8_t>& game_start_payload() { return start_payload; }
++const std::vector<uint8_t>& gecko_codes() { return codes_list; }
++
++void frame(int32_t index, MuReplayFrame* out) {
++  *out = MuReplayFrame{};
++  if (!game || !game->DoesFrameExist(index)) { out->result = MU_REPLAY_TERMINATE; return; }
++  Slippi::FrameData* f = game->GetFrame(index);
++  out->result = MU_REPLAY_CONTINUE;
++  out->seed_exists = f->randomSeedExists ? 1 : 0;
++  out->seed = f->randomSeed;
++  for (uint8_t port = 0; port < 4; ++port) {
++    for (int follower = 0; follower < 2; ++follower) {
++      const auto& source = follower ? f->followers : f->players;
++      auto it = source.find(port);
++      if (it == source.end()) continue;
++      const Slippi::PlayerFrameData& d = it->second;
++      MuReplayCharacter& c = out->character[port][follower];
++      c.present = 1;
++      c.random_seed = d.randomSeed;
++      c.joystick_x = d.joystickX; c.joystick_y = d.joystickY; c.cstick_x = d.cstickX; c.cstick_y = d.cstickY;
++      c.trigger = d.trigger;
++      c.buttons = d.buttons;
++      c.x = d.locationX; c.y = d.locationY; c.facing = d.facingDirection;
++      c.action_state = d.animation;
++      c.percent = d.percent;
++      c.joystick_x_raw = d.joystickXRaw; c.joystick_y_raw = d.joystickYRaw;
++      c.cstick_x_raw = d.cstickXRaw; c.cstick_y_raw = d.cstickYRaw;
++      if (follower) continue;   // overrides are for the main character of a port
++      auto in = input_overrides.find({index, port});
++      if (in != input_overrides.end()) {
++        const InputOverride& o = in->second;
++        c.joystick_x = o.f[0]; c.joystick_y = o.f[1]; c.cstick_x = o.f[2]; c.cstick_y = o.f[3];
++        c.trigger = o.f[4];
++        c.buttons = o.buttons;
++        c.joystick_x_raw = o.raw[0]; c.joystick_y_raw = o.raw[1];
++        c.cstick_x_raw = o.raw[2]; c.cstick_y_raw = o.raw[3];
++      }
++      auto st = state_overrides.find({index, port});
++      if (st != state_overrides.end()) {
++        const StateOverride& o = st->second;
++        c.x = o.x; c.y = o.y; c.facing = o.facing; c.action_state = o.action; c.percent = o.percent;
++      }
++    }
++  }
++}
++
++int32_t stock_steal(int32_t index, int32_t port) {
++  if (!game || !game->DoesFrameExist(index)) return 0;
++  return game->GetFrame(index)->players.count((uint8_t)port) ? 1 : 0;
++}
++
++bool command(const std::string& line, std::string* reply) {
++  std::istringstream in(line);
++  std::string name;
++  in >> name;
++  if (name == "clear-overrides") {
++    input_overrides.clear();
++    state_overrides.clear();
++    *reply = "OK\n";
++    return true;
++  }
++  if (name != "override" && name != "override-state") return false;
++  int32_t index = 0, port = 0;
++  in >> index >> port;
++  if (!in || port < 0 || port > 3) { *reply = "ERROR bad frame/port\n"; return true; }
++  if (name == "override") {
++    InputOverride o{};
++    int raw[4];
++    in >> o.f[0] >> o.f[1] >> o.f[2] >> o.f[3] >> o.f[4] >> o.buttons >> raw[0] >> raw[1] >> raw[2] >> raw[3];
++    if (!in) { *reply = "ERROR override needs 10 values\n"; return true; }
++    for (int i = 0; i < 4; ++i) o.raw[i] = (uint8_t)(int8_t)raw[i];   // raw stick bytes are signed
++    input_overrides[{index, port}] = o;
++  } else {
++    StateOverride o{};
++    in >> o.x >> o.y >> o.facing >> o.action >> o.percent;
++    if (!in) { *reply = "ERROR override-state needs 5 values\n"; return true; }
++    state_overrides[{index, port}] = o;
++  }
++  *reply = "OK\n";
++  return true;
++}
++
++}  // namespace linux_host::replay
+diff --git a/port/linux/replay_source.h b/port/linux/replay_source.h
+new file mode 100644
+index 0000000..bd63dbe
+--- /dev/null
++++ b/port/linux/replay_source.h
+@@ -0,0 +1,47 @@
++// vid2slp addition: Slippi replay playback for the HEADLESS Linux host (host API version 9).
++// The desktop host (port/app/source_host.cpp, --replay) has this; the headless host did not.
++// The game library already contains Slippi's playback codes natively (sourceport/game/shim/
++// mu_replay.c): the host only answers "what does the replay say for this frame" (inputs, seed,
++// and with resync the stored start-of-frame position / facing / action / percent).
++//
++// On top of the file's data, a controller (vid2slp's Python side, over the control socket) can
++// OVERRIDE any frame's inputs and stored states before that frame is played. This is what makes
++// the engine usable as a simulator: capture a checkpoint, try some inputs, restore, try others.
++// SPDX-License-Identifier: GPL-2.0-or-later
++#pragma once
++
++#include "mu_host.h"
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace linux_host::replay {
++
++// Load a .slp. sys_dir is a Slippi Playback "Sys" folder (its Slippi/InjectionLists say which of
++// the replay's Gecko codes affect gameplay). Returns false (and logs) on failure.
++bool load(const std::string& path, const std::string& sys_dir, bool resync);
++bool active();
++
++// Host API callbacks (see MuHostApi in port/runtime/abi/mu_host.h).
++const MuReplayStart* start();
++void frame(int32_t frame, MuReplayFrame* out);
++int32_t stock_steal(int32_t frame, int32_t port);
++
++// The original Game Start payload and Gecko code list (the new recording reuses them, as the
++// desktop host does).
++const std::vector<uint8_t>& game_start_payload();
++const std::vector<uint8_t>& gecko_codes();
++
++// Control-socket commands; returns true when the line was one of these (reply already in *reply).
++//   override <frame> <port> <stick_x> <stick_y> <cstick_x> <cstick_y> <trigger> <buttons>
++//            <raw_stick_x> <raw_stick_y> <raw_cstick_x> <raw_cstick_y>
++//       replace the inputs (processed floats, processed button word, raw stick bytes)
++//   override-state <frame> <port> <x> <y> <facing> <action> <percent>
++//       replace the stored start-of-frame state that resync forces (only used with resync on)
++//   clear-overrides
++//       forget all overrides
++// Overrides live in this process's memory, so a checkpoint restore brings back the overrides that
++// existed when the checkpoint was captured.
++bool command(const std::string& line, std::string* reply);
++
++}  // namespace linux_host::replay
+diff --git a/port/linux/retrace_control.cpp b/port/linux/retrace_control.cpp
+index 46f72c2..a97cbaa 100644
+--- a/port/linux/retrace_control.cpp
++++ b/port/linux/retrace_control.cpp
+@@ -21,7 +21,11 @@ void end(std::istream& in) {
+ bool live_two_player_match(const MuStatePod& state, bool include_preroll) {
+   unsigned present = 0;
+   for (const auto& player : state.player) present += player.present != 0;
+-  return state.scene_major == 2 && state.scene == 2 && (state.match_frame || include_preroll) && present == 2;
++  // vid2slp: replay playback runs the match in major scene 0x0E (GM_DEBUG_VS), minor 1, as Slippi
++  // Dolphin does (measured with --state-digest).
++  const bool vs = state.scene_major == 2 && state.scene == 2;
++  const bool replay = state.scene_major == 0x0E && state.scene == 1;
++  return (vs || replay) && (state.match_frame || include_preroll) && present == 2;
+ }
+ }
+ bool parse_rng_seed_boundary(const std::string& value) {
+@@ -133,6 +137,10 @@ bool RetraceControl::boundary(const MuStatePod& state, const Counters& c) {
+   while (receive(line)) {
+     if (line == "quit") return false;
+     if (line == "observe") { send(out.str()); continue; }
++    if (command_handler_) {   // vid2slp: replay overrides (replay_source.h)
++      std::string reply;
++      if (command_handler_(line, &reply)) { send(reply); continue; }
++    }
+     if (line == "record-status") {
+       RecordingStatus status{};
+       try {
+diff --git a/port/linux/retrace_control.h b/port/linux/retrace_control.h
+index 65b9440..3eee8d7 100644
+--- a/port/linux/retrace_control.h
++++ b/port/linux/retrace_control.h
+@@ -28,7 +28,12 @@ class RetraceControl {
+   bool boundary(const MuStatePod&, const Counters&);
+   bool ready() const { return ready_; }
+   const std::array<MuPadStatus, 4>& pads() const { return pads_; }
++  // vid2slp: extra commands (replay overrides). Returns true when it handled the line; the reply
++  // is sent back as is.
++  using CommandHandler = std::function<bool(const std::string&, std::string*)>;
++  void set_command_handler(CommandHandler handler) { command_handler_ = std::move(handler); }
+  private:
++  CommandHandler command_handler_;
+   void send(const std::string&);
+   bool receive(std::string&);
+   std::function<std::vector<uint8_t>()> replay_;
