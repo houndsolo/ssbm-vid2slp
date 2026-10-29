@@ -16,6 +16,8 @@ Outputs in data/m2/runs/<name>/: config.json, metrics.jsonl, best.pt, last.pt, t
 Run (inside tmux):
     .venv/bin/python scripts/m2_train.py --name base_v1
     .venv/bin/python scripts/m2_train.py --name base_v1 --resume     # continue after a crash
+Fine-tune an earlier run on another dataset (e.g. perceived states, scripts/m2_build_perceived.py):
+    .venv/bin/python scripts/m2_train.py --name perc_v1 --data data/m2_perc --init visible_v1 ...
 Quick smoke test:
     .venv/bin/python scripts/m2_train.py --name smoke --steps 300 --eval-every 300
 """
@@ -52,6 +54,8 @@ def get_args():
     ap.add_argument("--eval-every", type=int, default=5000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init", default="", help="start from the weights of this run's best.pt (fine-tune; "
+                    "model options must match; optimizer starts fresh)")
     ap.add_argument("--data", default="data/m2", help="dataset folder (data/m2 = v1 features, data/m2_v2 = v2)")
     ap.add_argument("--fp32-encoder", action="store_true", help="input layers in full precision")
     ap.add_argument("--zero-features", default="",
@@ -130,6 +134,10 @@ def main():
         gen.manual_seed(args.seed + step)  # fresh but reproducible sampling after resume
         say(f"resumed from step {step}, best so far {best:.4f}")
     else:
+        if args.init:
+            ck = torch.load(f"{DATA}/runs/{args.init}/best.pt", map_location=device)
+            model.load_state_dict(ck["model"])
+            say(f"initialized from {args.init} best.pt (step {ck['step']})")
         json.dump(vars(args) | {"parameters": count_parameters(model), "torch": torch.__version__},
                   open(f"{run_dir}/config.json", "w"), indent=1)
     say(f"model parameters: {count_parameters(model):,}")

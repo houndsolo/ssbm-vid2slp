@@ -12,10 +12,14 @@ Prints and saves (to the run folder, eval_<split>.json):
 Run:
     .venv/bin/python scripts/m2_eval.py --run base_v1 --split validation
     .venv/bin/python scripts/m2_eval.py --run base_v1 --split test
+Another dataset (e.g. perceived states, scripts/m2_build_perceived.py):
+    .venv/bin/python scripts/m2_eval.py --run visible_v1 --data data/m2_perc --split validation
+    .venv/bin/python scripts/m2_eval.py --run visible_v1 --data data/m2_perc --split validation_truth
 """
 
 import argparse
 import json
+import os
 
 import numpy as np
 import torch
@@ -33,20 +37,25 @@ INTERNAL_NAMES = {1: "Fox", 22: "Falco", 18: "Marth", 2: "Captain Falcon", 25: "
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
-    ap.add_argument("--split", default="validation", choices=["validation", "test"])
+    ap.add_argument("--split", default="validation", help="validation, test (or validation_truth in data/m2_perc)")
+    ap.add_argument("--data", default="", help="dataset folder (default: the one the run was trained on)")
     ap.add_argument("--checkpoint", default="best.pt")
     args = ap.parse_args()
     run_dir = f"{DATA}/runs/{args.run}"
 
     ck = torch.load(f"{run_dir}/{args.checkpoint}", map_location="cuda:0")
     cfg = ck["config"]
-    data_dir = cfg.get("data", DATA)  # dataset (feature version) this checkpoint was trained on
+    data_dir = args.data or cfg.get("data", DATA)  # default: the dataset this checkpoint was trained on
     split = load_split(data_dir, args.split, mmap=False)
     model = build_from_config(cfg, split["num"].shape[-1]).to("cuda:0")
     model.load_state_dict(ck["model"])
     pred_tgt, pred_btn = predict_split(model, split, "cuda:0", cfg["window"])
     m = score(split["tgt"], pred_tgt, split["btn"], pred_btn, split["offsets"])
-    base = json.load(open(f"{DATA}/baselines.json"))[args.split]
+    # baselines exist only for the standard splits of the standard datasets; otherwise show "-"
+    base = json.load(open(f"{DATA}/baselines.json")).get(args.split) if not args.data else None
+    if base is None:
+        nan = {k: float("nan") for k in m}
+        base = {"neutral": nan, "lookup": nan}
 
     print(f"run {args.run} ({args.checkpoint}, step {ck['step']}) on {args.split}: {m['frames']:,} player-frames\n")
     print(f"{'metric':24s} {'neutral':>9s} {'lookup':>9s} {'model':>9s}")
@@ -74,8 +83,10 @@ def main():
 
     out = {"run": args.run, "checkpoint": args.checkpoint, "step": ck["step"], "split": args.split,
            "metrics": m, "per_character": per_char}
-    json.dump(out, open(f"{run_dir}/eval_{args.split}.json", "w"), indent=1)
-    print(f"\nwrote {run_dir}/eval_{args.split}.json")
+    out["data"] = data_dir
+    tag = args.split if not args.data else f"{os.path.basename(args.data.rstrip('/'))}_{args.split}"
+    json.dump(out, open(f"{run_dir}/eval_{tag}.json", "w"), indent=1)
+    print(f"\nwrote {run_dir}/eval_{tag}.json")
 
 
 if __name__ == "__main__":

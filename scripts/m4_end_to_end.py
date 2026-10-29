@@ -14,7 +14,9 @@ For each chosen validation game (rendered video + perception output from scripts
      post-frame: also shield, stocks, airborne). scripts/m4_resync_probe.py showed that
      playback only reads the PRE-frame states (resync) and ignores the post-frame ones.
      The start-of-frame states follow src/vid2slp/assemble.py (learned start-of-frame rules;
-     optionally (--snap) standing characters snapped onto real floor heights).
+     optionally (--snap) standing characters snapped onto real floor heights; with --deaths,
+     dying characters are put just past the blast zone and living ones kept inside it, because
+     resync does not force the stock count).
   4. Play it in Slippi Playback (resync ON = Slippi Launcher's default) and compare the
      regenerated game with the original, frame by frame.
 
@@ -40,7 +42,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from vid2slp.assemble import load_rules, snap_to_ground, start_of_frame
+from vid2slp.assemble import load_rules, place_deaths, snap_to_ground, start_of_frame
 from vid2slp.id_data import FEATURE_SETS, arrays_from_states, game_arrays
 from vid2slp.id_model import build_from_config, predict_split
 from vid2slp.id_to_slp import processed_sequence
@@ -60,6 +62,7 @@ VARIANTS = {
     "truth_true_inputs": ("true", "truth"),
     "truth_xy_from_perc": ("true", "truth_but_perceived_xy"),
     "truth_action_from_perc": ("true", "truth_but_perceived_action"),
+    "truth_deaths_placed": ("true", "truth_deaths_placed"),     # needs --deaths
 }
 
 
@@ -70,9 +73,18 @@ def compare(orig, regen, stored, end):
     o, r, s = frames(orig), frames(regen), frames(stored)
     common = o.index.intersection(r.index).intersection(s.index)
     o, r, s = o.loc[common], r.loc[common], s.loc[common]
+    if "action_frame" not in r.columns:           # perception's own table has no animation counter
+        r = r.assign(action_frame=np.nan)
     return {
         "frames": int(len(common) // 2),
         "action_match": float((o.action.to_numpy() == r.action.to_numpy()).mean()),
+        # Resync writes the action NUMBER but does not run the game's state change, so the game
+        # can keep behaving (and looking) like another state, e.g. hanging on a ledge while the
+        # number says "falling" (found 2026-10-29). The animation frame counter and the airborne
+        # flag are not forced, so they show the state the game is really in:
+        "action_anim_match": float(((o.action.to_numpy() == r.action.to_numpy())
+                                    & (np.abs(o.action_frame.to_numpy() - r.action_frame.to_numpy()) <= 1)).mean()),
+        "airborne_match": float((o.airborne.to_numpy() == r.airborne.to_numpy()).mean()),
         "x_err": float(np.abs(o.x - r.x).mean()), "y_err": float(np.abs(o.y - r.y).mean()),
         "percent_err": float(np.abs(o.percent - r.percent).mean()),
         "stocks_match": float((o.stocks.to_numpy() == r.stocks.to_numpy()).mean()),
@@ -94,6 +106,8 @@ def main():
                     help="old writer: start-of-frame state = end of the previous frame (no learned rules)")
     ap.add_argument("--snap", action="store_true",
                     help="snap grounded y onto floor heights (tested 2026-10-28 on 4 games: slightly worse)")
+    ap.add_argument("--deaths", action="store_true",
+                    help="place deaths on the blast zones and keep living characters inside them")
     ap.add_argument("--same-games-as", default="", help="reuse the games of an earlier run (its --tag)")
     ap.add_argument("--tag", default="", help="output folder name (default: <perception>_<m2>)")
     ap.add_argument("--variants", default="perc_model,perc_true_inputs,perc_neutral,perc_model_noresync")
@@ -145,13 +159,24 @@ def main():
         inputs = {"model": (pred_tgt, pred_btn), "true": (true_tgt, true_btn),
                   "neutral": (neutral_tgt, np.zeros_like(true_btn))}
 
-        state = perceived.set_index(["frame", "port"]).sort_index()
+        # stored states: perception's, optionally with deaths placed on the blast zones
+        # (after the input model has seen the plain perceived states)
+        stored = perceived
+        if args.deaths:
+            stored, n_deaths = place_deaths(perceived, stage)
+            print(f"{sha[:12]}: {n_deaths} deaths placed", flush=True)
+        state = stored.set_index(["frame", "port"]).sort_index()
         names = ["action", "x", "y", "facing", "percent", "shield", "stocks", "airborne", "character"]
         truth = orig[orig.frame >= 0].set_index(["frame", "port"]).sort_index().loc[state.index]
         sources = {"perceived": {c: state[c].to_numpy() for c in names},
                    "truth": {c: truth[c].to_numpy() for c in names}}
         # diagnostics: the truth, with only the positions (or only the actions) from perception
         sources["truth_but_perceived_xy"] = {**sources["truth"], "x": state.x.to_numpy(), "y": state.y.to_numpy()}
+        # a check of the death fix alone: true states, but deaths placed the same way
+        if args.deaths:
+            fixed, _ = place_deaths(orig[orig.frame >= 0], stage)
+            fixed = fixed.set_index(["frame", "port"]).sort_index().loc[state.index]
+            sources["truth_deaths_placed"] = {c: fixed[c].to_numpy() for c in names}
         sources["truth_but_perceived_action"] = {**sources["truth"], "action": state.action.to_numpy()}
         row_of = {key: i for i, key in enumerate(state.index)}
 
@@ -222,10 +247,11 @@ def main():
         print(res[res.error.notna()][["game", "variant", "error"]].to_string(index=False))
         res = res[res.error.isna()]
     print("\nregenerated game vs original (mean over games):")
-    print(res.groupby("variant")[["action_match", "x_err", "y_err", "percent_err", "stocks_match",
+    print(res.groupby("variant")[["action_match", "action_anim_match", "airborne_match", "x_err", "y_err", "percent_err", "stocks_match",
                                   "follows_stored_action", "follows_stored_x"]].mean().round(3).to_string())
     json.dump({"perception": args.perception, "m2": args.m2, "m2_step": ck["step"], "games": chosen,
-               "end": args.end, "seed": args.seed}, open(f"{out_root}/config.json", "w"), indent=1)
+               "end": args.end, "seed": args.seed, "deaths": args.deaths, "snap": args.snap,
+               "naive_pre": args.naive_pre, "variants": wanted}, open(f"{out_root}/config.json", "w"), indent=1)
     print(f"\nwrote {out_root}/results.csv")
 
 
