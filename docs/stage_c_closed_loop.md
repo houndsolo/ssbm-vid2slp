@@ -29,6 +29,12 @@ while it chooses the inputs:
    The game is chaotic, so one unlucky choice can make the rebuilt game drift away for good;
    this keeps such an attempt from ruining the rest of the game. The choice uses only the video
    (perceived states), never the original replay.
+   Optional (2026-10-30): `--extra-restarts N` gives a segment up to N more attempts while its
+   best attempt still fits the video poorly (cost per frame above `--restart-threshold`), and
+   `--backtrack N` searches the previous segment and the current one again together (N attempts)
+   when the current one is still poor but the previous one looked fine: the mistake is often
+   made near the end of the previous segment (for example a throw in the wrong direction) and
+   only shows as a lost stock in the next one.
 4. The output .slp is the engine's own recording of the kept inputs. Its stored states are the
    engine's real states, so it plays back the same in Slippi Playback with or without resync
    (checked: every output tested so far replays identically).

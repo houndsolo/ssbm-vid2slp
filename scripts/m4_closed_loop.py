@@ -452,6 +452,39 @@ def run_game(job):
     track_cost = 0.0                             # cost vs the perceived states of the kept attempts
     restarts = max(1, args["restarts"])
     segment = args["segment"] if restarts > 1 else end
+    threshold = args["restart_threshold"]
+
+    def attempt(a_start, a_stop, rng):
+        """One attempt: replay the kept inputs up to a_start, then search frames a_start..a_stop.
+        Returns (total cost, cost of the searched frames, chosen inputs, seeds, override rows,
+        replanner history, end state, frames judged). The replanner history is put back as it
+        was, so every attempt starts from the same history."""
+        trial_cur = {key: v.copy() for key, v in cur.items()}
+        trial_seeds, trial_rows = dict(seeds), {}
+        sim_before = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
+        with Engine(base_slp, codes=CODES) as e:
+            e.frame_seeds(False)
+            st = fast_forward(e, final_rows, seeds, a_start, ports, None)
+            st, a_cost = search_stretch(e, st, a_stop, ctx, trial_cur, trial_seeds, trial_rows, rng,
+                                        replanner, stats)
+            # judge the end state too: play on --lookahead frames with the model's inputs
+            tail = 0.0
+            if in_match(st) and restarts > 1:
+                t0 = st["match_frame"] + 1
+                stop = min(t0 + args["lookahead"], T)
+                e.override_many(override_rows(trial_cur["tgt"], trial_cur["btn"], trial_cur["raw"], t0, stop, ports))
+                try:
+                    tail = cost(e.steps(stop - t0), t0, per, ports)
+                except RuntimeError:
+                    pass
+        judged = max(1, (a_stop - a_start) + (args["lookahead"] if restarts > 1 else 0))
+        sim_after = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
+        if replanner:
+            replanner.sim = sim_before
+        return (a_cost + tail, a_cost, trial_cur, trial_seeds, trial_rows, sim_after, st, judged)
+
+    # What the previous segment started from, so it can be searched again (--backtrack).
+    prev = None
     seg_start, last_frame = 1, 1
     while seg_start < end:
         seg_stop = min(seg_start + segment, end)
@@ -460,37 +493,51 @@ def run_game(job):
         # --restarts attempts; then, while the best one still fits the video poorly (cost per
         # judged frame above --restart-threshold), up to --extra-restarts more (2026-10-30: a few
         # bad segments, where the rebuilt game drifts away, decide most of the lost score).
-        while k < restarts or (best[0] / best[7] > args["restart_threshold"]
-                               and k < restarts + args["extra_restarts"]):
-            rng = np.random.default_rng([args["seed"], seg_start, k])
-            trial_cur = {key: v.copy() for key, v in cur.items()}
-            trial_seeds, trial_rows = dict(seeds), {}
-            sim_before = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
-            with Engine(base_slp, codes=CODES) as e:
-                e.frame_seeds(False)
-                st = fast_forward(e, final_rows, seeds, seg_start, ports, None)
-                st, seg_cost = search_stretch(e, st, seg_stop, ctx, trial_cur, trial_seeds, trial_rows, rng,
-                                              replanner, stats)
-                # judge the end state too: play on --lookahead frames with the model's inputs
-                tail = 0.0
-                if in_match(st) and restarts > 1:
-                    t0 = st["match_frame"] + 1
-                    stop = min(t0 + args["lookahead"], T)
-                    e.override_many(override_rows(trial_cur["tgt"], trial_cur["btn"], trial_cur["raw"], t0, stop, ports))
-                    try:
-                        tail = cost(e.steps(stop - t0), t0, per, ports)
-                    except RuntimeError:
-                        pass
-            total = seg_cost + tail
-            judged = max(1, (seg_stop - seg_start) + (args["lookahead"] if restarts > 1 else 0))
-            sim_after = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
-            if best is None or total < best[0]:
-                best = (total, seg_cost, trial_cur, trial_seeds, trial_rows, sim_after, st, judged)
-            if replanner:                        # the next attempt starts from the same history
-                replanner.sim = sim_before
+        while k < restarts or (best[0] / best[7] > threshold and k < restarts + args["extra_restarts"]):
+            trial = attempt(seg_start, seg_stop, np.random.default_rng([args["seed"], seg_start, k]))
+            if best is None or trial[0] < best[0]:
+                best = trial
             k += 1
         stats["attempts"] = stats.get("attempts", 0) + k
-        stats.setdefault("seg_cost", []).append(round(float(best[0]) / best[7], 2))   # best cost per judged frame
+        seg_cost_now = round(float(best[0]) / best[7], 2)   # best cost per judged frame
+        stats.setdefault("seg_cost", []).append(seg_cost_now)
+
+        # --backtrack: still poor, but the previous segment looked fine. Often the mistake was
+        # made near the end of the previous segment and only shows later (2026-10-30, game 6cd8:
+        # a throw in the wrong direction at frame ~590 and a death at 718), so no attempt of this
+        # segment can fix it. Search both segments again together, from where the previous one
+        # started, and keep that only if it fits the video better than what we have.
+        backtracked = False
+        if (args["backtrack"] > 0 and seg_cost_now > threshold and prev is not None
+                and prev["cost_per_frame"] <= threshold):
+            # what we have now, as one attempt over both segments
+            p = prev
+            joined_rows = dict(p["rows"])
+            joined_rows.update(best[4])
+            have = (p["seg_cost"] + best[0], p["seg_cost"] + best[1], best[2], best[3], joined_rows,
+                    best[5], best[6], (seg_start - p["start"]) + best[7])
+            # go back to the state before the previous segment
+            cur, seeds, final_rows, track_cost = p["cur"], p["seeds"], p["final_rows"], p["track_cost"]
+            if replanner:
+                replanner.sim = p["sim"]
+            for b in range(args["backtrack"]):
+                trial = attempt(p["start"], seg_stop, np.random.default_rng([args["seed"], p["start"], 1000 + b]))
+                if trial[0] < have[0]:
+                    have = trial
+                    backtracked = True
+            stats["attempts"] = stats.get("attempts", 0) + 2 * args["backtrack"]   # each spans two segments
+            stats.setdefault("backtracks", []).append(
+                [p["start"], seg_cost_now, round(float(have[0]) / have[7], 2), backtracked])
+            best = have
+
+        # keep the best attempt; remember the state before this segment for a later backtrack
+        # (not after a backtrack: going back two segments is not supported, keep it simple)
+        if args["backtrack"] > 0 and not backtracked:
+            prev = {"start": seg_start, "cost_per_frame": seg_cost_now, "seg_cost": best[1], "rows": best[4],
+                    "cur": cur, "seeds": seeds, "final_rows": dict(final_rows), "track_cost": track_cost,
+                    "sim": {c: v.copy() for c, v in replanner.sim.items()} if replanner else None}
+        else:
+            prev = None
         _, seg_cost, cur, seeds, rows, sim_after, st, _ = best
         final_rows.update(rows)
         if replanner:
@@ -512,7 +559,9 @@ def run_game(job):
     return {"game": sha[:12], "seconds": round(time.time() - t_start, 1), "last_frame": int(st["match_frame"]),
             "choices": json.dumps(stats["choices"]),
             "mean_gain": float(np.mean(stats["gain"])) if stats["gain"] else 0.0, "track_cost": track_cost,
-            "attempts": stats.get("attempts", 0), "seg_cost": json.dumps(stats.get("seg_cost", []))}
+            "attempts": stats.get("attempts", 0), "seg_cost": json.dumps(stats.get("seg_cost", [])),
+            # [start of the earlier segment, cost per frame before, after, kept the new attempt?]
+            "backtracks": json.dumps(stats.get("backtracks", []))}
 
 
 # ---- main --------------------------------------------------------------------------------
@@ -542,6 +591,9 @@ def main():
                     help="more attempts for segments whose best attempt still fits the video poorly")
     ap.add_argument("--restart-threshold", type=float, default=3.0,
                     help="cost per judged frame above which a segment gets the extra attempts")
+    ap.add_argument("--backtrack", type=int, default=0,
+                    help="attempts at searching the previous segment and this one again together, when this "
+                         "one still fits poorly but the previous one looked fine (0 = off)")
     ap.add_argument("--pos-tail", type=float, default=0.0,
                     help="cost per unit of position error beyond 30 units (0 = flat cap, the old cost)")
     ap.add_argument("--seeds", type=int, default=0, help="random seeds tried per chunk (0 = never choose seeds)")
