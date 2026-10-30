@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from vid2slp.id_data import AXIS_CLASSES, BUTTONS, CATEGORICAL, NUM_FEATURES, TRIGGER_CLASSES
+from vid2slp.id_data import AXIS_CLASSES, BUTTONS, CATEGORICAL, NUM_FEATURES, RAW_CLASSES, RAW_MISSING, TRIGGER_CLASSES
 
 # embedding width for each categorical feature (same order as id_data.CATEGORICAL)
 CAT_DIMS = {"action": 64, "character": 16, "ground": 16, "hurtbox_state": 4,
@@ -67,7 +67,7 @@ class Block(nn.Module):
 
 class InverseDynamics(nn.Module):
     def __init__(self, d_model=384, layers=8, heads=8, dropout=0.1, window=256,
-                 num_features=NUM_FEATURES, fp32_encoder=False, zero_features=(), zero_cats=()):
+                 num_features=NUM_FEATURES, fp32_encoder=False, zero_features=(), zero_cats=(), raw_heads=False):
         super().__init__()
         # zero_features: column numbers of numeric features the model must NOT see (they are
         # multiplied by 0, for both players). Used for ablations, e.g. "does damage % help?".
@@ -87,6 +87,8 @@ class InverseDynamics(nn.Module):
         self.axis_heads = nn.ModuleList(nn.Linear(d_model, AXIS_CLASSES) for _ in range(4))
         self.trigger_head = nn.Linear(d_model, TRIGGER_CLASSES)
         self.button_head = nn.Linear(d_model, len(BUTTONS))
+        # raw_heads: also predict the RAW main-stick bytes x and y (id_data.RAW_CLASSES; Stage C)
+        self.raw_heads = nn.ModuleList(nn.Linear(d_model, RAW_CLASSES) for _ in range(2)) if raw_heads else None
         # ALiBi: head h penalises attention to a frame at distance d by slope_h * d.
         slopes = torch.tensor([2 ** (-8 * (h + 1) / heads) for h in range(heads)])
         dist = torch.arange(window)[None, :] - torch.arange(window)[:, None]
@@ -107,21 +109,29 @@ class InverseDynamics(nn.Module):
         for blk in self.blocks:
             x = blk(x, bias)
         x = self.norm(x)
-        return {
+        out = {
             "axes": [h(x) for h in self.axis_heads],   # 4 x [B, L, 161]
             "trigger": self.trigger_head(x),            # [B, L, 141]
-            "buttons": self.button_head(x),             # [B, L, 5] logits
+            "buttons": self.button_head(x),             # [B, L, 8] logits
         }
+        if self.raw_heads is not None:
+            out["raw"] = [h(x) for h in self.raw_heads]   # 2 x [B, L, 256]
+        return out
 
 
-def loss_fn(out, tgt, btn):
-    """tgt [B, L, 5] int (4 axes + trigger), btn [B, L] uint8 bitmask -> scalar loss and parts."""
+def loss_fn(out, tgt, btn, raw=None):
+    """tgt [B, L, 5] int (4 axes + trigger), btn [B, L] uint8 bitmask -> scalar loss and parts.
+    raw [B, L, 2] (optional): raw stick bytes 0..255, RAW_MISSING = not stored (no loss)."""
     parts = {}
     for i, logits in enumerate(out["axes"]):
         parts[f"axis{i}"] = F.cross_entropy(logits.float().flatten(0, 1), tgt[..., i].long().flatten())
     parts["trigger"] = F.cross_entropy(out["trigger"].float().flatten(0, 1), tgt[..., 4].long().flatten())
     bits = torch.stack([(btn.long() >> i) & 1 for i in range(len(BUTTONS))], dim=-1).float()
     parts["buttons"] = F.binary_cross_entropy_with_logits(out["buttons"].float(), bits) * len(BUTTONS)
+    if raw is not None and "raw" in out:
+        for i, logits in enumerate(out["raw"]):
+            parts[f"raw{i}"] = F.cross_entropy(logits.float().flatten(0, 1), raw[..., i].long().flatten(),
+                                               ignore_index=RAW_MISSING)
     return sum(parts.values()), {k: v.item() for k, v in parts.items()}
 
 
@@ -199,12 +209,14 @@ def predict_probs(model, num_all, cat_all, device, window=256, batch=64):
         axes [T, 2, 4, 161]   probability of each stick / c-stick value (-80..80)
         trigger [T, 2, 141]   probability of each trigger value (0..140)
         buttons [T, 2, len(BUTTONS)]   probability that each logical button bit is set
+        raw [T, 2, 2, 256]    (models with raw heads) probability of each raw stick x / y byte
     """
     model.eval()
     n = len(num_all)
     axes = np.zeros((n, 2, 4, 161), np.float16)
     trigger = np.zeros((n, 2, 141), np.float16)
     buttons = np.zeros((n, 2, len(BUTTONS)), np.float16)
+    raw = np.zeros((n, 2, 2, RAW_CLASSES), np.float16) if model.raw_heads is not None else None
     jobs = window_jobs(np.array([0, n]), window)
     for self_port in (0, 1):
         order = [self_port, 1 - self_port]
@@ -218,11 +230,39 @@ def predict_probs(model, num_all, cat_all, device, window=256, batch=64):
             a = torch.stack([o.float().softmax(-1) for o in out["axes"]], dim=2).cpu().numpy()
             t = out["trigger"].float().softmax(-1).cpu().numpy()
             b = torch.sigmoid(out["buttons"].float()).cpu().numpy()
+            r = torch.stack([o.float().softmax(-1) for o in out["raw"]], dim=2).cpu().numpy() if raw is not None else None
             for row, (s, keep_from, keep_to) in enumerate(chunk):
                 axes[keep_from:keep_to, self_port] = a[row, keep_from - s:keep_to - s]
                 trigger[keep_from:keep_to, self_port] = t[row, keep_from - s:keep_to - s]
                 buttons[keep_from:keep_to, self_port] = b[row, keep_from - s:keep_to - s]
-    return {"axes": axes, "trigger": trigger, "buttons": buttons}
+                if raw is not None:
+                    raw[keep_from:keep_to, self_port] = r[row, keep_from - s:keep_to - s]
+    out = {"axes": axes, "trigger": trigger, "buttons": buttons}
+    if raw is not None:
+        out["raw"] = raw          # [T, 2, 2, 256] probability of each raw stick x / y byte (0..255)
+    return out
+
+
+@torch.no_grad()
+def predict_raw(model, split, device, window=256, batch=128):
+    """Most likely raw stick bytes for every frame of a split: int16 [N, 2, 2] (0..255)."""
+    model.eval()
+    num_all, cat_all, offsets = split["num"], split["cat"], split["offsets"]
+    pred = np.zeros((offsets[-1], 2, 2), np.int16)
+    jobs = window_jobs(offsets, window)
+    for self_port in (0, 1):
+        order = [self_port, 1 - self_port]
+        for i in range(0, len(jobs), batch):
+            chunk = jobs[i:i + batch]
+            idx = np.stack([np.arange(s, s + window) for s, _, _ in chunk])
+            num = torch.from_numpy(np.asarray(num_all[idx.ravel()])[:, order]).to(device).view(len(chunk), window, 2, -1)
+            cat = torch.from_numpy(np.asarray(cat_all[idx.ravel()])[:, order]).to(device).view(len(chunk), window, 2, -1)
+            with torch.autocast("cuda", dtype=torch.float16):
+                out = model(num, cat)
+            r = torch.stack([o.argmax(-1) for o in out["raw"]], dim=-1).cpu().numpy()
+            for row, (s, keep_from, keep_to) in enumerate(chunk):
+                pred[keep_from:keep_to, self_port] = r[row, keep_from - s:keep_to - s]
+    return pred
 
 
 def build_from_config(cfg, num_features):
@@ -230,7 +270,7 @@ def build_from_config(cfg, num_features):
     return InverseDynamics(cfg["d_model"], cfg["layers"], cfg["heads"], 0.0, cfg["window"],
                            num_features=num_features, fp32_encoder=cfg.get("fp32_encoder", False),
                            zero_features=cfg.get("zero_feature_columns", ()),
-                           zero_cats=cfg.get("zero_cat_columns", ()))
+                           zero_cats=cfg.get("zero_cat_columns", ()), raw_heads=cfg.get("raw", False))
 
 
 def count_parameters(model):

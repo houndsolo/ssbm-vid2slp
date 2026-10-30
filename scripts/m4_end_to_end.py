@@ -81,6 +81,7 @@ def main():
     ap.add_argument("--deaths", action="store_true",
                     help="place deaths on the blast zones and keep living characters inside them")
     ap.add_argument("--same-games-as", default="", help="reuse the games of an earlier run (its --tag)")
+    ap.add_argument("--game-list", default="", help="file with game sha256s to use")
     ap.add_argument("--tag", default="", help="output folder name (default: <perception>_<m2>)")
     ap.add_argument("--variants", default="perc_model,perc_true_inputs,perc_neutral,perc_model_noresync")
     args = ap.parse_args()
@@ -100,6 +101,8 @@ def main():
     chosen = sorted(rng.choice(candidates, min(args.games, len(candidates)), replace=False))
     if args.same_games_as:
         chosen = json.load(open(f"{OUT}/{args.same_games_as}/config.json"))["games"]
+    if args.game_list:
+        chosen = open(args.game_list).read().split()
     print(f"{len(candidates)} candidate games, using {len(chosen)}", flush=True)
 
     early_actions, facing_early = load_rules()

@@ -31,11 +31,23 @@ import time
 import numpy as np
 import torch
 
-from vid2slp.id_data import CATEGORICAL, FEATURE_SETS, load_split
+from vid2slp.id_data import CATEGORICAL, FEATURE_SETS, RAW_MISSING, load_split, stick_from_raw
 from vid2slp.id_metrics import format_scores, score
-from vid2slp.id_model import InverseDynamics, count_parameters, loss_fn, lr_at, predict_split
+from vid2slp.id_model import InverseDynamics, count_parameters, loss_fn, lr_at, predict_raw, predict_split
 
 DATA = "data/m2"
+
+
+def raw_scores(true_raw, pred_raw):
+    """Raw stick accuracy (frames where the replay stores raw y): exact raw x / y, both, and the
+    processed stick the game would compute from the predicted raw (stick_from_raw)."""
+    true_raw, pred_raw = np.asarray(true_raw).reshape(-1, 2), np.asarray(pred_raw).reshape(-1, 2)
+    ok = true_raw[:, 1] != RAW_MISSING
+    t, p = true_raw[ok].astype(np.int64) - 128, pred_raw[ok].astype(np.int64) - 128
+    tp, pp = stick_from_raw(t[:, 0], t[:, 1]), stick_from_raw(p[:, 0], p[:, 1])
+    return {"raw_x_exact": float((t[:, 0] == p[:, 0]).mean()), "raw_y_exact": float((t[:, 1] == p[:, 1]).mean()),
+            "raw_both_exact": float((t == p).all(1).mean()),
+            "processed_from_raw_exact": float(((tp[0] == pp[0]) & (tp[1] == pp[1])).mean())}
 
 
 def get_args():
@@ -60,6 +72,8 @@ def get_args():
     ap.add_argument("--fp32-encoder", action="store_true", help="input layers in full precision")
     ap.add_argument("--zero-features", default="",
                     help="comma-separated numeric features to hide from the model, e.g. percent (ablation)")
+    ap.add_argument("--raw", action="store_true",
+                    help="also predict the RAW stick bytes (needs <data>/<split>_raw.npy, scripts/m2_add_raw.py)")
     ap.add_argument("--zero-cats", default="",
                     help="comma-separated categorical features to hide, e.g. ground,hurtbox_state")
     return ap.parse_args()
@@ -89,6 +103,7 @@ def main():
     g_cat = torch.from_numpy(train["cat"]).to(device)
     g_tgt = torch.from_numpy(train["tgt"]).to(device)
     g_btn = torch.from_numpy(train["btn"]).to(device)
+    g_raw = torch.from_numpy(np.asarray(train["raw"])).to(device) if args.raw else None
     # every row where a full window fits inside one game is a valid window start
     off = train["offsets"]
     starts = np.concatenate([np.arange(a, b - args.window + 1) for a, b in zip(off[:-1], off[1:])])
@@ -108,7 +123,10 @@ def main():
         cat = torch.gather(g_cat[rows], 2, o.expand(-1, args.window, -1, g_cat.shape[-1]))
         tgt = torch.gather(g_tgt[rows], 2, o[..., :1, :].expand(-1, args.window, 1, 5))[:, :, 0]
         btn = torch.gather(g_btn[rows], 2, order[:, None, :1].expand(-1, args.window, 1))[:, :, 0]
-        return num, cat, tgt, btn
+        raw = None
+        if g_raw is not None:
+            raw = torch.gather(g_raw[rows], 2, o[..., :1, :].expand(-1, args.window, 1, 2))[:, :, 0]
+        return num, cat, tgt, btn, raw
 
     # ---- model ------------------------------------------------------------------------
     # Features to hide (ablation): names -> column numbers in this dataset's feature set.
@@ -121,7 +139,7 @@ def main():
     model = InverseDynamics(args.d_model, args.layers, args.heads, args.dropout, args.window,
                             num_features=g_num.shape[-1], fp32_encoder=args.fp32_encoder,
                             zero_features=args.zero_feature_columns,
-                            zero_cats=args.zero_cat_columns).to(device)
+                            zero_cats=args.zero_cat_columns, raw_heads=args.raw).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.98))
     scaler = torch.amp.GradScaler("cuda")
     step, best = 0, -1.0
@@ -136,7 +154,9 @@ def main():
     else:
         if args.init:
             ck = torch.load(f"{DATA}/runs/{args.init}/best.pt", map_location=device)
-            model.load_state_dict(ck["model"])
+            missing, unexpected = model.load_state_dict(ck["model"], strict=False)
+            # only NEW output heads (e.g. --raw on a model without them) may be missing
+            assert not unexpected and all(k.startswith("raw_heads") for k in missing), (missing, unexpected)
             say(f"initialized from {args.init} best.pt (step {ck['step']})")
         json.dump(vars(args) | {"parameters": count_parameters(model), "torch": torch.__version__},
                   open(f"{run_dir}/config.json", "w"), indent=1)
@@ -153,10 +173,10 @@ def main():
     while step < args.steps:
         for group in opt.param_groups:
             group["lr"] = lr_at(step, args.steps, args.lr, args.warmup)
-        num, cat, tgt, btn = batch()
+        num, cat, tgt, btn, raw = batch()
         with torch.autocast("cuda", dtype=torch.float16):
             out = model(num, cat)
-        loss, parts = loss_fn(out, tgt, btn)
+        loss, parts = loss_fn(out, tgt, btn, raw)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
@@ -179,6 +199,8 @@ def main():
             te = time.time()
             pred_tgt, pred_btn = predict_split(model, val, device, args.window)
             m = score(val["tgt"], pred_tgt, val["btn"], pred_btn, val["offsets"])
+            if args.raw:
+                m.update(raw_scores(val["raw"], predict_raw(model, val, device, args.window)))
             model.train()
             improved = m["frame_all_correct"] > best
             if improved:
@@ -187,7 +209,8 @@ def main():
             save(f"{run_dir}/last.pt", m)
             with open(f"{run_dir}/metrics.jsonl", "a") as f:
                 f.write(json.dumps({"step": step, **m}) + "\n")
-            say(f"VALIDATION step {step}: {format_scores(m)}{'  (best)' if improved else ''}  "
+            raw_text = ("  " + format_scores(m, ["raw_x_exact", "raw_y_exact", "processed_from_raw_exact"])) if args.raw else ""
+            say(f"VALIDATION step {step}: {format_scores(m)}{raw_text}{'  (best)' if improved else ''}  "
                 f"[{time.time() - te:.0f}s]")
             t0, seen, running = time.time(), 0, {}
 

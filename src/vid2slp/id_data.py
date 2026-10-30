@@ -15,6 +15,8 @@ Layout: for one split, all games are stacked frame after frame into big arrays:
 Only frames >= 0 are kept (frames -123..-1 are the countdown where nobody can act).
 """
 
+import os
+
 import numpy as np
 import pandas as pd
 
@@ -34,6 +36,11 @@ _EDGE_OF = {"JUMP_EDGE": "JUMP", "SHIELD_EDGE": "SHIELD"}
 AXES = ["stick_x", "stick_y", "cstick_x", "cstick_y"]
 AXIS_CLASSES = 161     # -80..80
 TRIGGER_CLASSES = 141  # 0..140 (value * 140)
+# RAW main-stick bytes (-128..127, stored +128 as 0..255). The game derives the processed stick
+# from them (stick_from_raw), but UCF 0.84 also reads the raw bytes themselves (e.g. a stick pushed
+# PAST the rim on a cardinal counts as exactly 1.0), so the closed loop needs them (2026-10-30).
+RAW_CLASSES = 256
+RAW_MISSING = -100     # older replays don't store raw stick y: ignored in the loss
 
 # ---- features --------------------------------------------------------------------------
 # (column, scale): the model sees value / scale, so most features land roughly in -3..3.
@@ -122,11 +129,41 @@ def game_arrays(parquet_path, stage_id, feature_set="v1"):
     return num, cat, tgt, btn
 
 
+def stick_from_raw(raw_x, raw_y):
+    """Raw main-stick bytes -> processed stick values as the game computes them, in -80..80
+    (divide by 80 for the .slp float). Checked on 426,224 frames of real UCF 0.84 games: exact.
+    The raw point is pulled onto the circle of radius 80 if it is outside, truncated toward
+    zero, and then any axis below 23 is set to 0 (the dead zone)."""
+    rx = np.asarray(raw_x, np.float64)
+    ry = np.asarray(raw_y, np.float64)
+    m = np.sqrt(rx ** 2 + ry ** 2)
+    scale = np.where(m > 80, 80 / np.maximum(m, 1e-9), 1.0)
+    px, py = np.trunc(rx * scale), np.trunc(ry * scale)
+    px = np.where(np.abs(px) < 23, 0, px)
+    py = np.where(np.abs(py) < 23, 0, py)
+    return px.astype(np.int64), py.astype(np.int64)
+
+
+def raw_arrays(parquet_path):
+    """Raw main-stick bytes of one parsed game, frames >= 0: int16 [n, 2, 2] (x, y) as 0..255,
+    RAW_MISSING where the replay doesn't store them."""
+    t = pd.read_parquet(parquet_path, columns=["frame", "port", "raw_stick_x", "raw_stick_y"])
+    t = t[t.frame >= 0]
+    n = len(t) // 2
+    out = []
+    for c in ("raw_stick_x", "raw_stick_y"):
+        v = t[c].to_numpy(dtype=np.float32).reshape(n, 2)
+        out.append(np.where(np.isnan(v), RAW_MISSING, np.nan_to_num(v) + 128))
+    return np.stack(out, axis=-1).astype(np.int16)
+
+
 def load_split(directory, split, mmap=True):
     """Load the arrays saved by scripts/m2_build_dataset.py for one split."""
     mode = "r" if mmap else None
     out = {k: np.load(f"{directory}/{split}_{k}.npy", mmap_mode=mode) for k in ("num", "cat", "tgt", "btn")}
     out["offsets"] = np.load(f"{directory}/{split}_offsets.npy")
+    if os.path.exists(f"{directory}/{split}_raw.npy"):      # scripts/m2_add_raw.py
+        out["raw"] = np.load(f"{directory}/{split}_raw.npy", mmap_mode=mode)
     out["sha256"] = open(f"{directory}/{split}_games.txt").read().split()
     return out
 

@@ -17,6 +17,7 @@ per command (protocol "MUCONTROL 2", port/linux/retrace_control.cpp):
     override ...       replace a frame's inputs       (replay_source.h)
     override-state ... replace a frame's stored state (used with resync)
     clear-overrides
+    override-seed      force a frame's random seed
     frame-seeds 0|1    0 = don't force the file's per-frame random seeds
     record             the played game so far, as a .slp file
 After every step / capture / restore the engine answers with a STATE line:
@@ -169,10 +170,13 @@ class Engine:
         lines = [f"override {f} {p} {sx:.9g} {sy:.9g} {cx:.9g} {cy:.9g} {tr:.9g} {int(b)} "
                  f"{int(rx)} {int(ry)} {int(rcx)} {int(rcy)}"
                  for f, p, sx, sy, cx, cy, tr, b, rx, ry, rcx, rcy in rows]
-        if lines:
-            self._send("\n".join(lines))
-        for _ in lines:
-            self._expect_ok()
+        # In batches: every "OK" reply takes ~1 KB of socket buffer on the engine's side, so
+        # thousands of unread replies would block the engine while we are still sending (deadlock).
+        for k in range(0, len(lines), 100):
+            batch = lines[k:k + 100]
+            self._send("\n".join(batch))
+            for _ in batch:
+                self._expect_ok()
 
     def steps(self, n):
         """Advance n frames; returns the n states (sent together, like override_many)."""
@@ -180,6 +184,12 @@ class Engine:
         out = [parse_state(self._line()) for _ in range(n)]
         self._state = out[-1]
         return out
+
+    def override_seed(self, frame, seed):
+        """Force random seed `seed` (32-bit) at the start of `frame`. The recording stores it and
+        Slippi Playback forces it too, so a rebuilt game may choose its own seeds."""
+        self._send(f"override-seed {int(frame)} {int(seed) & 0xFFFFFFFF}")
+        self._expect_ok()
 
     def frame_seeds(self, on):
         """False: stop forcing the replay's per-frame random seeds (a rebuilt game must not use
