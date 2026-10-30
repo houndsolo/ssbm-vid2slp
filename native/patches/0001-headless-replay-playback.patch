@@ -15,7 +15,7 @@ index 1af4548..17f5848 100644
  target_compile_options(headless_services PRIVATE -Wall -Wextra -fno-strict-aliasing -ffp-contract=on)
  target_link_libraries(headless_services PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
 diff --git a/port/linux/host_services.cpp b/port/linux/host_services.cpp
-index 349b2a8..f84d33b 100644
+index 349b2a8..69d3ff3 100644
 --- a/port/linux/host_services.cpp
 +++ b/port/linux/host_services.cpp
 @@ -6,6 +6,7 @@
@@ -54,7 +54,49 @@ index 349b2a8..f84d33b 100644
    // The game calls this after Game End and on match exit. The event sink owns
    // all recording data; completion never writes a file or invents an ending.
    h.replay_finished=h_void;
-@@ -973,6 +988,11 @@ bool initialize(const Config& config, std::string* error) {
+@@ -865,14 +880,41 @@ MuHostApi make_api() {
+   return h;
+ }
+ 
++// vid2slp: main-RAM fast path for the audio code, which reads/writes guest memory ~200k times per
++// frame (it was about a third of all engine time). Guest 0x80000000.. is mapped at the same host
++// address (mem1_base), so the pointer is the address itself: same result as memory_pointer().
++// Also remembers the last game-image region hit (the audio buffers live in the game image, which
++// is mapped at the same host addresses too), so most accesses skip memory_pointer() entirely.
++uintptr_t ax_region_lo = 0, ax_region_hi = 0;
++inline bool ax_fast(uint32_t address, uint32_t size) {
++  const uint64_t end = uint64_t(address) + size;
++  if (address >= ax_region_lo && end <= ax_region_hi) return true;
++  if (memory_reserved && address >= mem1_base && end <= uint64_t(mem1_base) + mem1_bytes) return true;
++  for (const auto& region : image_mappings) {
++    const uintptr_t start = reinterpret_cast<uintptr_t>(region.address);
++    if (address >= start && end <= uint64_t(start) + region.size) {
++      ax_region_lo = start; ax_region_hi = start + region.size;
++      return true;
++    }
++  }
++  return false;
++}
+ template<typename T> T ax_read(uint32_t address) {
+   T value{};
++  if (ax_fast(address, sizeof value)) {
++    std::memcpy(&value, reinterpret_cast<const void*>(uintptr_t(address)), sizeof value);
++    return value;
++  }
+   auto* p = memory_pointer(address, sizeof value);
+   if (!p) h_panic("linux_host", 0, "AX read outside native memory");
+   std::memcpy(&value, p, sizeof value);
+   return value;
+ }
+ template<typename T> void ax_write(uint32_t address, T value) {
++  if (ax_fast(address, sizeof value)) {
++    std::memcpy(reinterpret_cast<void*>(uintptr_t(address)), &value, sizeof value);
++    return;
++  }
+   auto* p = memory_pointer(address, sizeof value);
+   if (!p) h_panic("linux_host", 0, "AX write outside native memory");
+   std::memcpy(p, &value, sizeof value);
+@@ -973,6 +1015,11 @@ bool initialize(const Config& config, std::string* error) {
    auto startup_failed = [&] { shutdown(); return false; };
    if (!reserve_memory(error)) return startup_failed();
    if (!cfg.input_script.empty() && !input_script.load(cfg.input_script,error)) return startup_failed();
@@ -66,7 +108,17 @@ index 349b2a8..f84d33b 100644
    // Linux uses the game's own native AX music stream until a native jukebox
    // service is wired. Keep ordinary Melee Unlocked gameplay options enabled.
    if (!std::getenv("MELEE_NO_JUKEBOX")) setenv("MELEE_NO_JUKEBOX","1",0);
-@@ -1033,13 +1053,13 @@ int run() {
+@@ -1000,7 +1047,8 @@ bool initialize(const Config& config, std::string* error) {
+     fail(error, "native game/host ABI mismatch; rebuild the whole Linux v0.9.0 target together");
+     return startup_failed();
+   }
+-  ax::set_memory({ax_read<uint16_t>, ax_read<uint32_t>, ax_write<uint16_t>, ax_write<uint32_t>, aram.data(), aram_bytes});
++  ax::set_memory({ax_read<uint16_t>, ax_read<uint32_t>, ax_write<uint16_t>, ax_write<uint32_t>, aram.data(), aram_bytes,
++                  memory_pointer});   // vid2slp: block copies of parameter blocks
+   ax::reset(); ax::set_output_sink(ax_output);
+ #ifdef MELEE_LINUX_SDL
+   const uint32_t requested=SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER | (cfg.headless ? 0 : SDL_INIT_AUDIO);
+@@ -1033,13 +1081,13 @@ int run() {
  }
  
  RecordingStatus recording_status() {
@@ -82,7 +134,36 @@ index 349b2a8..f84d33b 100644
      throw std::runtime_error("recording requires a vanilla match with gameplay events");
    auto bytes = recording.encode();
    if (bytes.empty()) throw std::runtime_error("recording: " + recording.error());
-@@ -1231,3 +1251,8 @@ void log(const char* format, ...) {
+@@ -1062,6 +1110,7 @@ void shutdown() {
+ #endif
+   if (module) { dlclose(module); module=nullptr; }
+   game={}; api={}; image_regions.clear(); image_mappings.clear(); image_bytes=0;
++  ax_region_lo=ax_region_hi=0;
+   if (disc_fd >= 0) { close(disc_fd); disc_fd=-1; }
+   files.clear(); paths.clear(); completions.clear(); aram.clear();
+   if (memory_reserved) {
+@@ -1086,10 +1135,19 @@ uint8_t* memory_pointer(uint32_t address, uint32_t size) {
+   const uint64_t end=uint64_t(at) + size;
+   if (memory_reserved && at >= mem1_base && end <= mem1_base + mem1_bytes) return reinterpret_cast<uint8_t*>(at);
+   if (memory_reserved && at >= locked_cache_base && end <= locked_cache_base + locked_cache_bytes) return reinterpret_cast<uint8_t*>(at);
+-  for (const auto& region : image_mappings) {
++  // vid2slp: the audio code looks up addresses in the game image ~200k times per frame (most of
++  // them in the same region), so try the region of the last hit first. Same result, much faster.
++  static size_t last_region = 0;
++  if (last_region < image_mappings.size()) {
++    const auto& region = image_mappings[last_region];
+     const uintptr_t start=reinterpret_cast<uintptr_t>(region.address);
+     if (at >= start && end <= uint64_t(start) + region.size) return reinterpret_cast<uint8_t*>(at);
+   }
++  for (size_t k = 0; k < image_mappings.size(); ++k) {
++    const auto& region = image_mappings[k];
++    const uintptr_t start=reinterpret_cast<uintptr_t>(region.address);
++    if (at >= start && end <= uint64_t(start) + region.size) { last_region = k; return reinterpret_cast<uint8_t*>(at); }
++  }
+   return nullptr;
+ }
+ void request_stop(int code) { stop_requested=true; stop_code=code; }
+@@ -1231,3 +1289,8 @@ void log(const char* format, ...) {
    linux_host::log("%s", line);
  }
  } // namespace host
@@ -647,3 +728,39 @@ index 65b9440..3eee8d7 100644
    void send(const std::string&);
    bool receive(std::string&);
    std::function<std::vector<uint8_t>()> replay_;
+diff --git a/port/runtime/hle/ax_ucode.cpp b/port/runtime/hle/ax_ucode.cpp
+index 62da78e..382ae2f 100644
+--- a/port/runtime/hle/ax_ucode.cpp
++++ b/port/runtime/hle/ax_ucode.cpp
+@@ -82,10 +82,16 @@ inline uint32_t hilo(uint16_t hi, uint16_t lo) { return ((uint32_t)hi << 16) | l
+ inline uint8_t read_aram(uint32_t addr) { return addr < g_mem.aram_size ? g_mem.aram[addr] : 0; }
+ 
+ void read_pb(uint32_t addr, AXPB& pb) {
++  if (g_mem.ptr) {   // vid2slp: one copy instead of a call per 16-bit field (same bytes)
++    if (const uint8_t* p = g_mem.ptr(addr, sizeof(AXPB))) { std::memcpy(&pb, p, sizeof(AXPB)); return; }
++  }
+   uint16_t* dst = (uint16_t*)&pb;
+   for (size_t i = 0; i < sizeof(AXPB) / 2; ++i) dst[i] = g_mem.rd16(addr + (uint32_t)i * 2);
+ }
+ void write_pb(uint32_t addr, const AXPB& pb) {
++  if (g_mem.ptr) {
++    if (uint8_t* p = g_mem.ptr(addr, sizeof(AXPB))) { std::memcpy(p, &pb, sizeof(AXPB)); return; }
++  }
+   const uint16_t* src = (const uint16_t*)&pb;
+   for (size_t i = 0; i < sizeof(AXPB) / 2; ++i) g_mem.wr16(addr + (uint32_t)i * 2, src[i]);
+ }
+diff --git a/port/runtime/hle/ax_ucode.h b/port/runtime/hle/ax_ucode.h
+index b6a4ca6..f8cbbe6 100644
+--- a/port/runtime/hle/ax_ucode.h
++++ b/port/runtime/hle/ax_ucode.h
+@@ -16,6 +16,10 @@ struct Memory {
+   void (*wr32)(uint32_t addr, uint32_t v);
+   const uint8_t* aram;      // 16 MB
+   uint32_t aram_size;
++  // vid2slp: optional direct pointer to `size` bytes of guest memory in host byte order (nullptr
++  // when not available). Lets a whole parameter block be copied at once instead of ~160 rd16/wr16
++  // calls per voice and AX frame (that was ~a third of the headless engine's time).
++  uint8_t* (*ptr)(uint32_t addr, uint32_t size) = nullptr;
+ };
+ 
+ struct VoiceTrace {

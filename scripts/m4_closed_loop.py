@@ -244,11 +244,17 @@ def override_rows(cur_tgt, cur_btn, cur_raw, t0, end, ports):
 
 # ---- distance between a simulated stretch and the perceived states -------------------------
 
+POS_TAIL = 0.0          # set from --pos-tail in run_game (each worker process)
+
+
 def cost(states, t0, per, ports):
     """Sum over frames t0.. and both players of how different the engine's states are from the
     perceived ones. Units: 1 = one frame with the wrong action (10 world units of position
     error, or 10 % damage error, cost as much; a wrong stock count costs 3; wrong facing 0.5).
-    Frames where perception did not see the character count 0.2."""
+    Frames where perception did not see the character count 0.2.
+    Position errors beyond 30 units add POS_TAIL per extra unit (--pos-tail; 0 = the old flat cap).
+    Why (2026-10-30): with a flat cap, once a rebuilt character is 30+ units off, every candidate
+    costs the same and nothing pulls it back (game 6cd8 drifted offstage and lost a stock)."""
     total = 0.0
     for k, st in enumerate(states):
         f = t0 + k
@@ -257,7 +263,8 @@ def cost(states, t0, per, ports):
         for i, port in enumerate(ports):
             p = st["players"][port]
             c = float(p["action"] != per["action"][f, i])
-            c += min(abs(p["x"] - per["x"][f, i]) + abs(p["y"] - per["y"][f, i]), 30.0) / 10.0
+            d = abs(p["x"] - per["x"][f, i]) + abs(p["y"] - per["y"][f, i])
+            c += min(d, 30.0) / 10.0 + POS_TAIL * max(d - 30.0, 0.0)
             c += 0.5 * float((p["facing"] > 0) != (per["facing"][f, i] > 0))
             c += min(abs(p["percent"] - per["percent"][f, i]), 20.0) / 10.0
             c += 3.0 * float(p["stocks"] != per["stocks"][f, i])
@@ -406,6 +413,8 @@ def run_game(job):
     One unlucky choice then spoils at most one attempt, not the rest of the game (measured
     2026-10-30: whole-game runs vary a lot, and the perceived-state cost picks the truly best run)."""
     sha, path, probs, per, ports, end, args, out_dir, oracle, perceived, stage = job
+    global POS_TAIL
+    POS_TAIL = args.get("pos_tail", 0.0)
     t_start = time.time()
     base_tgt, base_btn, base_raw = most_likely(probs)
     if args["true_inputs"]:                      # DIAGNOSTIC: start from the true inputs
@@ -519,6 +528,8 @@ def main():
     ap.add_argument("--replan", action="store_true",
                     help="also try the model's inputs computed from the engine's own recent states")
     ap.add_argument("--replan-samples", type=int, default=4, help="sampled candidates from the replanned probabilities")
+    ap.add_argument("--pos-tail", type=float, default=0.0,
+                    help="cost per unit of position error beyond 30 units (0 = flat cap, the old cost)")
     ap.add_argument("--seeds", type=int, default=0, help="random seeds tried per chunk (0 = never choose seeds)")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--verify", type=int, default=2, help="replay this many outputs in Slippi Playback")

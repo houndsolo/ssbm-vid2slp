@@ -4,9 +4,9 @@
 # What: Melee Unlocked (github.com/houndsolo/melee-unlocked, commit fba2f21) + our patch
 #   native/patches/0001-headless-replay-playback.patch  (Slippi replay playback with input/state
 #   overrides for the headless host, a replacement Gecko code list (--replay-codes), optional
-#   per-frame seeds (frame-seeds 0) or chosen ones (override-seed), and a checkpoint that can
-#   be moved forward; see
-#   src/vid2slp/engine.py)
+#   per-frame seeds (frame-seeds 0) or chosen ones (override-seed), a checkpoint that can
+#   be moved forward, and faster guest-memory access in the audio emulation (1.8x faster engine,
+#   recordings identical; 2026-10-30); see src/vid2slp/engine.py)
 # Only the small headless HOST is rebuilt. The game library (melee_game.so, the game itself) is the
 # existing build in data/tools/native-engine/build/game (same commit; it already contains Slippi's
 # playback codes natively).
