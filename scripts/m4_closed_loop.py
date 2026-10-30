@@ -63,6 +63,7 @@ OUT = "data/m4/closed_loop"
 CODES = "data/m4/ucf084_gecko.bin"
 AIRBORNE = "data/m4/airborne_by_action.json"   # scripts/m4_airborne_table.py
 HISTORY = 600   # frames of committed inputs re-processed before a chunk (X/Y and L/R alternation)
+EARLY_STOP_PIECE = 8   # a candidate is simulated in pieces of this many frames (see trial())
 
 
 # ---- inputs ------------------------------------------------------------------------------
@@ -287,18 +288,43 @@ def search_stretch(e, st, stop, ctx, cur, seeds, rows_out, rng, replanner, stats
             e.capture()
             replan = replanner.probs(t0, n) if replanner else None
 
-            def trial(i, tgt, btn, raw, end_frame):
-                """Cost of playing these inputs for player i in this chunk, judged up to end_frame."""
+            def trial(i, tgt, btn, raw, end_frame, limit=float("inf")):
+                """Cost of playing these inputs for player i in this chunk, judged up to end_frame.
+                Stops early once the cost reaches `limit` (the best candidate so far): costs only add
+                up, so such a candidate can't win anyway. Same choice, less engine time."""
                 t_tgt, t_btn, t_raw = cur["tgt"].copy(), cur["btn"].copy(), cur["raw"].copy()
                 t_tgt[t0:t0 + n, i], t_btn[t0:t0 + n, i], t_raw[t0:t0 + n, i] = tgt, btn, raw
                 e.restore()
                 e.override_many(override_rows(t_tgt, t_btn, t_raw, t0, end_frame, ports))
-                return cost(e.steps(end_frame - t0), t0, per, ports)
+                total, f = 0.0, t0
+                while f < end_frame:
+                    piece = min(EARLY_STOP_PIECE, end_frame - f)
+                    total += cost(e.steps(piece), f, per, ports)
+                    f += piece
+                    if total >= limit and args["early_stop"]:
+                        break
+                return total
 
+            known = None                     # (player, inputs, cost) of the last kept choice
             for i in range(2):               # player by player (the other keeps its best so far)
                 mine = {k: v[:, i] for k, v in replan.items()} if replan else None
-                scored = [(trial(i, tgt, btn, raw, span_end), name, tgt, btn, raw) for name, tgt, btn, raw in
-                          candidates(probs, base, i, t0, n, args["samples"], rng, oracle, mine, args["replan_samples"])]
+                scored, best_so_far, seen = [], float("inf"), {}
+                for name, tgt, btn, raw in candidates(probs, base, i, t0, n, args["samples"], rng, oracle, mine,
+                                                      args["replan_samples"]):
+                    # Identical candidates (e.g. shifting inputs that don't change, or a sample equal
+                    # to "base") are simulated once. Player 2's "base" equals what player 1's choice
+                    # was judged with, so that cost is reused too. Same choices, less engine time.
+                    key = (tgt.tobytes(), btn.tobytes(), raw.tobytes())
+                    if key in seen:
+                        c = seen[key]
+                    elif known is not None and np.array_equal(tgt, cur["tgt"][t0:t0 + n, i]) and \
+                            np.array_equal(btn, cur["btn"][t0:t0 + n, i]) and np.array_equal(raw, cur["raw"][t0:t0 + n, i]):
+                        c = known
+                    else:
+                        c = trial(i, tgt, btn, raw, span_end, best_so_far)
+                    seen[key] = c
+                    best_so_far = min(best_so_far, c)
+                    scored.append((c, name, tgt, btn, raw))
                 if long_end > span_end:
                     # Two stages: the few best candidates are judged again over a LONGER stretch
                     # (tested 2026-10-30: worse than judging every candidate over the long stretch).
@@ -307,6 +333,7 @@ def search_stretch(e, st, stop, ctx, cur, seeds, rows_out, rng, replanner, stats
                         finalists.append(0)          # always keep "base" as a finalist
                     scored = [(trial(i, *scored[k][2:], long_end), *scored[k][1:]) for k in finalists]
                 best = min(scored, key=lambda c: c[0])
+                known = best[0] if long_end <= span_end else None
                 stats["gain"].append(next(c for c, name, *_ in scored if name == "base") - best[0])
                 stats["choices"][best[1]] = stats["choices"].get(best[1], 0) + 1
                 cur["tgt"][t0:t0 + n, i], cur["btn"][t0:t0 + n, i], cur["raw"][t0:t0 + n, i] = best[2], best[3], best[4]
@@ -484,6 +511,8 @@ def main():
     ap.add_argument("--long-lookahead", type=int, default=0,
                     help="judge the best --finalists candidates again over this many frames (0 = off)")
     ap.add_argument("--finalists", type=int, default=3)
+    ap.add_argument("--no-early-stop", dest="early_stop", action="store_false",
+                    help="always simulate every candidate to the end of the look-ahead (slower, same result)")
     ap.add_argument("--restarts", type=int, default=1, help="attempts per segment; the one closest to the video is kept")
     ap.add_argument("--segment", type=int, default=300, help="frames per segment (with --restarts > 1)")
     ap.add_argument("--open-loop", action="store_true", help="no search: the model's most likely inputs")
