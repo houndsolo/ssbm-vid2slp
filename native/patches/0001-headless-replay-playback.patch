@@ -197,10 +197,10 @@ index acbc199..bb256f7 100644
    bool active() const { return restore_fd_ >= 0; }
 diff --git a/port/linux/replay_source.cpp b/port/linux/replay_source.cpp
 new file mode 100644
-index 0000000..d72b35b
+index 0000000..6d8fec1
 --- /dev/null
 +++ b/port/linux/replay_source.cpp
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,341 @@
 +// vid2slp addition: Slippi replay playback for the headless Linux host. See replay_source.h.
 +// Ported from port/app/source_host.cpp (set_replay, h_replay_frame, replay_codes,
 +// read_replay_event) and port/runtime/hle/slippi_playback.cpp (gameplay_codes), without the
@@ -245,6 +245,9 @@ index 0000000..d72b35b
 +// "frame-seeds 0": don't force the file's per-frame random seeds (a rebuilt game must not use the
 +// original's seeds; the RNG then runs on from the game start seed, and the recording stores it).
 +bool use_frame_seeds = true;
++// "override-seed <frame> <seed>": force this random seed at the start of that frame instead (the
++// rebuilt game may CHOOSE its seeds: the recording stores them and playback forces them).
++std::map<int32_t, uint32_t> seed_overrides;
 +
 +void logf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 +void logf(const char* fmt, ...) {
@@ -445,6 +448,10 @@ index 0000000..d72b35b
 +  out->result = MU_REPLAY_CONTINUE;
 +  out->seed_exists = f->randomSeedExists && use_frame_seeds ? 1 : 0;
 +  out->seed = f->randomSeed;
++  if (auto s = seed_overrides.find(index); s != seed_overrides.end()) {
++    out->seed_exists = 1;
++    out->seed = s->second;
++  }
 +  for (uint8_t port = 0; port < 4; ++port) {
 +    for (int follower = 0; follower < 2; ++follower) {
 +      const auto& source = follower ? f->followers : f->players;
@@ -493,6 +500,16 @@ index 0000000..d72b35b
 +  if (name == "clear-overrides") {
 +    input_overrides.clear();
 +    state_overrides.clear();
++    seed_overrides.clear();
++    *reply = "OK\n";
++    return true;
++  }
++  if (name == "override-seed") {
++    int32_t index = 0;
++    uint32_t seed = 0;
++    in >> index >> seed;
++    if (!in) { *reply = "ERROR override-seed needs a frame and a seed\n"; return true; }
++    seed_overrides[index] = seed;
 +    *reply = "OK\n";
 +    return true;
 +  }
@@ -527,10 +544,10 @@ index 0000000..d72b35b
 +}  // namespace linux_host::replay
 diff --git a/port/linux/replay_source.h b/port/linux/replay_source.h
 new file mode 100644
-index 0000000..6c7a43c
+index 0000000..f31ddaf
 --- /dev/null
 +++ b/port/linux/replay_source.h
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,54 @@
 +// vid2slp addition: Slippi replay playback for the HEADLESS Linux host (host API version 9).
 +// The desktop host (port/app/source_host.cpp, --replay) has this; the headless host did not.
 +// The game library already contains Slippi's playback codes natively (sourceport/game/shim/
@@ -574,6 +591,8 @@ index 0000000..6c7a43c
 +//       replace the inputs (processed floats, processed button word, raw stick bytes)
 +//   override-state <frame> <port> <x> <y> <facing> <action> <percent>
 +//       replace the stored start-of-frame state that resync forces (only used with resync on)
++//   override-seed <frame> <seed>
++//       force this random seed at the start of that frame
 +//   frame-seeds <0|1>
 +//       0 = don't force the file's per-frame random seeds
 +//   clear-overrides

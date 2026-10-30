@@ -286,15 +286,19 @@ def run_game(job):
     # Starting file: the original as a template (settings, stage, characters, start seed) with
     # the model's most likely inputs from frame 0 on, so even frames played before we take
     # control (the engine hands over at frame 1) use model inputs.
-    seqs = [processed_sequence(base_tgt[:, i], base_btn[:, i]) for i in range(2)]
+    first_tgt, first_btn, first_raw = base_tgt, base_btn, cur_raw
+    if oracle is not None:                       # DIAGNOSTIC: frames played before we take control
+        T0 = len(base_tgt)
+        first_tgt, first_btn, first_raw = oracle[0][:T0].astype(np.int64), oracle[1][:T0], oracle[2][:T0]
+    seqs = [processed_sequence(first_tgt[:, i], first_btn[:, i]) for i in range(2)]
     col = {int(p): i for i, p in enumerate(ports)}
 
     def values(frame, port):
         if frame < 0 or frame >= T:
             return None
         v = dict(seqs[col[int(port)]][frame])
-        v["raw_stick_x"] = int(cur_raw[frame, col[int(port)], 0])
-        v["raw_stick_y"] = int(cur_raw[frame, col[int(port)], 1])
+        v["raw_stick_x"] = int(first_raw[frame, col[int(port)], 0])
+        v["raw_stick_y"] = int(first_raw[frame, col[int(port)], 1])
         return v
     base_slp = f"{out_dir}/{sha[:12]}_start.slp"
     write_inputs(path, base_slp, values)
