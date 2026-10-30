@@ -315,22 +315,33 @@ def run_game(job):
             t0 = st["match_frame"] + 1           # the next frame the engine plays
             n = min(H, end - st["match_frame"])
             span_end = min(t0 + n + L, T)
+            long_end = min(t0 + n + args["long_lookahead"], T)
             if not args["open_loop"]:
                 e.capture()
                 replan = replanner.probs(t0, n) if replanner else None
+                def trial(i, tgt, btn, raw, stop):
+                    """Cost of playing these inputs for player i in this chunk, judged up to frame stop."""
+                    trial_tgt, trial_btn, trial_raw = cur_tgt.copy(), cur_btn.copy(), cur_raw.copy()
+                    trial_tgt[t0:t0 + n, i], trial_btn[t0:t0 + n, i], trial_raw[t0:t0 + n, i] = tgt, btn, raw
+                    e.restore()
+                    e.override_many(override_rows(trial_tgt, trial_btn, trial_raw, t0, stop, ports))
+                    return cost(e.steps(stop - t0), t0, per, ports)
+
                 for i in range(2):               # player by player (the other keeps its best so far)
-                    scored = []
                     mine = {k: v[:, i] for k, v in replan.items()} if replan else None
-                    for name, tgt, btn, raw in candidates(probs, (base_tgt, base_btn, base_raw), i, t0, n,
-                                                          args["samples"], rng, oracle, mine, args["replan_samples"]):
-                        trial_tgt, trial_btn, trial_raw = cur_tgt.copy(), cur_btn.copy(), cur_raw.copy()
-                        trial_tgt[t0:t0 + n, i], trial_btn[t0:t0 + n, i], trial_raw[t0:t0 + n, i] = tgt, btn, raw
-                        e.restore()
-                        e.override_many(override_rows(trial_tgt, trial_btn, trial_raw, t0, span_end, ports))
-                        states = e.steps(span_end - t0)
-                        scored.append((cost(states, t0, per, ports), name, tgt, btn, raw))
+                    scored = [(trial(i, tgt, btn, raw, span_end), name, tgt, btn, raw) for name, tgt, btn, raw in
+                              candidates(probs, (base_tgt, base_btn, base_raw), i, t0, n, args["samples"], rng,
+                                         oracle, mine, args["replan_samples"])]
+                    if long_end > span_end:
+                        # Two stages: the few best candidates are judged again over a LONGER stretch
+                        # (some input differences only show up 10-30 frames later; measured
+                        # 2026-10-30: look-ahead 30 instead of 10 raised the oracle check 0.81 -> 0.89).
+                        finalists = sorted(range(len(scored)), key=lambda k: scored[k][0])[:args["finalists"]]
+                        if 0 not in finalists:
+                            finalists.append(0)          # always keep "base" as a finalist
+                        scored = [(trial(i, *scored[k][2:], long_end), *scored[k][1:]) for k in finalists]
                     best = min(scored, key=lambda s: s[0])
-                    gain.append(scored[0][0] - best[0])   # scored[0] is "base"
+                    gain.append(next(c for c, name, *_ in scored if name == "base") - best[0])
                     choices[best[1]] = choices.get(best[1], 0) + 1
                     cur_tgt[t0:t0 + n, i], cur_btn[t0:t0 + n, i], cur_raw[t0:t0 + n, i] = best[2], best[3], best[4]
                 if args["seeds"]:
@@ -383,6 +394,9 @@ def main():
     ap.add_argument("--chunk", type=int, default=4, help="frames chosen at a time")
     ap.add_argument("--lookahead", type=int, default=10, help="extra frames played to judge a candidate")
     ap.add_argument("--samples", type=int, default=8, help="sampled candidates per player and chunk")
+    ap.add_argument("--long-lookahead", type=int, default=0,
+                    help="judge the best --finalists candidates again over this many frames (0 = off)")
+    ap.add_argument("--finalists", type=int, default=3)
     ap.add_argument("--open-loop", action="store_true", help="no search: the model's most likely inputs")
     ap.add_argument("--replan", action="store_true",
                     help="also try the model's inputs computed from the engine's own recent states")
