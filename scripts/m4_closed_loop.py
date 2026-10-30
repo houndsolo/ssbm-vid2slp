@@ -456,7 +456,12 @@ def run_game(job):
     while seg_start < end:
         seg_stop = min(seg_start + segment, end)
         best = None
-        for k in range(restarts):
+        k = 0
+        # --restarts attempts; then, while the best one still fits the video poorly (cost per
+        # judged frame above --restart-threshold), up to --extra-restarts more (2026-10-30: a few
+        # bad segments, where the rebuilt game drifts away, decide most of the lost score).
+        while k < restarts or (best[0] / best[7] > args["restart_threshold"]
+                               and k < restarts + args["extra_restarts"]):
             rng = np.random.default_rng([args["seed"], seg_start, k])
             trial_cur = {key: v.copy() for key, v in cur.items()}
             trial_seeds, trial_rows = dict(seeds), {}
@@ -477,12 +482,16 @@ def run_game(job):
                     except RuntimeError:
                         pass
             total = seg_cost + tail
+            judged = max(1, (seg_stop - seg_start) + (args["lookahead"] if restarts > 1 else 0))
             sim_after = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
             if best is None or total < best[0]:
-                best = (total, seg_cost, trial_cur, trial_seeds, trial_rows, sim_after, st)
+                best = (total, seg_cost, trial_cur, trial_seeds, trial_rows, sim_after, st, judged)
             if replanner:                        # the next attempt starts from the same history
                 replanner.sim = sim_before
-        _, seg_cost, cur, seeds, rows, sim_after, st = best
+            k += 1
+        stats["attempts"] = stats.get("attempts", 0) + k
+        stats.setdefault("seg_cost", []).append(round(float(best[0]) / best[7], 2))   # best cost per judged frame
+        _, seg_cost, cur, seeds, rows, sim_after, st, _ = best
         final_rows.update(rows)
         if replanner:
             replanner.sim = sim_after
@@ -502,7 +511,8 @@ def run_game(job):
     os.remove(base_slp)
     return {"game": sha[:12], "seconds": round(time.time() - t_start, 1), "last_frame": int(st["match_frame"]),
             "choices": json.dumps(stats["choices"]),
-            "mean_gain": float(np.mean(stats["gain"])) if stats["gain"] else 0.0, "track_cost": track_cost}
+            "mean_gain": float(np.mean(stats["gain"])) if stats["gain"] else 0.0, "track_cost": track_cost,
+            "attempts": stats.get("attempts", 0), "seg_cost": json.dumps(stats.get("seg_cost", []))}
 
 
 # ---- main --------------------------------------------------------------------------------
@@ -528,6 +538,10 @@ def main():
     ap.add_argument("--replan", action="store_true",
                     help="also try the model's inputs computed from the engine's own recent states")
     ap.add_argument("--replan-samples", type=int, default=4, help="sampled candidates from the replanned probabilities")
+    ap.add_argument("--extra-restarts", type=int, default=0,
+                    help="more attempts for segments whose best attempt still fits the video poorly")
+    ap.add_argument("--restart-threshold", type=float, default=3.0,
+                    help="cost per judged frame above which a segment gets the extra attempts")
     ap.add_argument("--pos-tail", type=float, default=0.0,
                     help="cost per unit of position error beyond 30 units (0 = flat cap, the old cost)")
     ap.add_argument("--seeds", type=int, default=0, help="random seeds tried per chunk (0 = never choose seeds)")
