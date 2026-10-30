@@ -50,7 +50,11 @@ fit the video), and the game's code list (our fixed UCF 0.84 list, data/m4/ucf08
   always carry UCF 0.84), but test games must be UCF 0.84 for a fair check
   (data/m4/test_games_ucf084.txt).
 - Pokemon Stadium transformations are not implemented in the engine.
-- Speed: about 2 hours per minute of game for 12 games at once on this server (16 cores).
+- Speed: about 1 hour per minute of game for 12 games at once on this server (16 cores), with
+  the engine before 2026-10-30's speedup (the engine is now 1.8x faster, same results).
+- Run-to-run luck is large: the same settings with another random seed can move one game's
+  action match by +-0.07 or more, mostly through a few segments where the rebuilt game drifts
+  away from the video. Compare settings over several seeds before trusting a difference.
 
 ## How to run
 
