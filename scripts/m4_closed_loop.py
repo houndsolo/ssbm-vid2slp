@@ -270,23 +270,128 @@ def in_match(state):
 
 # ---- one game ----------------------------------------------------------------------------
 
+def search_stretch(e, st, stop, ctx, cur, seeds, rows_out, rng, replanner, stats):
+    """The search itself: from the engine's current state `st`, choose the inputs chunk by chunk
+    until the game reaches frame `stop` (see the top of this file). Changes cur (input arrays),
+    seeds and rows_out (the exact override rows played, by frame) in place.
+    Returns (state at the end, cost of the played frames vs the perceived states)."""
+    probs, base, per, ports, T, args, oracle = ctx
+    H, L = args["chunk"], args["lookahead"]
+    track = 0.0
+    while in_match(st) and st["match_frame"] < stop:
+        t0 = st["match_frame"] + 1           # the next frame the engine plays
+        n = min(H, stop - st["match_frame"])
+        span_end = min(t0 + n + L, T)
+        long_end = min(t0 + n + args["long_lookahead"], T)
+        if not args["open_loop"]:
+            e.capture()
+            replan = replanner.probs(t0, n) if replanner else None
+
+            def trial(i, tgt, btn, raw, end_frame):
+                """Cost of playing these inputs for player i in this chunk, judged up to end_frame."""
+                t_tgt, t_btn, t_raw = cur["tgt"].copy(), cur["btn"].copy(), cur["raw"].copy()
+                t_tgt[t0:t0 + n, i], t_btn[t0:t0 + n, i], t_raw[t0:t0 + n, i] = tgt, btn, raw
+                e.restore()
+                e.override_many(override_rows(t_tgt, t_btn, t_raw, t0, end_frame, ports))
+                return cost(e.steps(end_frame - t0), t0, per, ports)
+
+            for i in range(2):               # player by player (the other keeps its best so far)
+                mine = {k: v[:, i] for k, v in replan.items()} if replan else None
+                scored = [(trial(i, tgt, btn, raw, span_end), name, tgt, btn, raw) for name, tgt, btn, raw in
+                          candidates(probs, base, i, t0, n, args["samples"], rng, oracle, mine, args["replan_samples"])]
+                if long_end > span_end:
+                    # Two stages: the few best candidates are judged again over a LONGER stretch
+                    # (tested 2026-10-30: worse than judging every candidate over the long stretch).
+                    finalists = sorted(range(len(scored)), key=lambda k: scored[k][0])[:args["finalists"]]
+                    if 0 not in finalists:
+                        finalists.append(0)          # always keep "base" as a finalist
+                    scored = [(trial(i, *scored[k][2:], long_end), *scored[k][1:]) for k in finalists]
+                best = min(scored, key=lambda c: c[0])
+                stats["gain"].append(next(c for c, name, *_ in scored if name == "base") - best[0])
+                stats["choices"][best[1]] = stats["choices"].get(best[1], 0) + 1
+                cur["tgt"][t0:t0 + n, i], cur["btn"][t0:t0 + n, i], cur["raw"][t0:t0 + n, i] = best[2], best[3], best[4]
+            if args["seeds"]:
+                # The random seed is also ours to choose (it decides e.g. which tumble animation a
+                # launched character gets, Dreamland's wind, Fountain of Dreams' platforms). Keep
+                # the game's own seed unless a random new one clearly fits the video better.
+                rows = override_rows(cur["tgt"], cur["btn"], cur["raw"], t0, span_end, ports)
+                e.restore()
+                e.override_many(rows)
+                keep_cost = cost(e.steps(span_end - t0), t0, per, ports)
+                trials = []
+                for seed in rng.integers(0, 2**32, args["seeds"]):
+                    e.restore()
+                    e.override_many(rows)
+                    e.override_seed(t0, int(seed))
+                    trials.append((cost(e.steps(span_end - t0), t0, per, ports), int(seed)))
+                best_seed = min(trials)
+                if best_seed[0] < keep_cost - 0.5:
+                    seeds[t0] = best_seed[1]
+                    stats["choices"]["seed"] = stats["choices"].get("seed", 0) + 1
+            e.restore()
+            if t0 in seeds:
+                e.override_seed(t0, seeds[t0])
+        rows = override_rows(cur["tgt"], cur["btn"], cur["raw"], t0, span_end, ports)
+        e.override_many(rows)
+        for row in rows:                     # the frames of this chunk are final now
+            if row[0] < t0 + n:
+                rows_out.setdefault(row[0], []).append(row)
+        try:
+            played = e.steps(n)
+        except RuntimeError:                 # the engine stopped (the replay file ended)
+            break
+        track += cost(played, t0, per, ports)
+        if replanner:
+            for k, state in enumerate(played):
+                replanner.record(t0 + k, state, ports)
+        st = played[-1]
+    return st, track
+
+
+def fast_forward(e, final_rows, seeds, stop, ports, replanner=None):
+    """Replay the inputs already chosen (exact override rows by frame, and chosen seeds) up to
+    frame `stop`, quickly (no search). Returns the engine state there."""
+    rows = [r for f in sorted(final_rows) if f <= stop for r in final_rows[f]]
+    e.override_many(rows)
+    for f, seed in seeds.items():
+        if f <= stop:
+            e.override_seed(f, seed)
+    st = e.state()
+    while in_match(st) and st["match_frame"] < stop:
+        t0 = st["match_frame"] + 1
+        try:
+            played = e.steps(min(100, stop - st["match_frame"]))
+        except RuntimeError:
+            break
+        if replanner:
+            for k, state in enumerate(played):
+                replanner.record(t0 + k, state, ports)
+        st = played[-1]
+    return st
+
+
 def run_game(job):
-    """Closed-loop (or open-loop) reconstruction of one game in the engine."""
+    """Closed-loop (or open-loop) reconstruction of one game in the engine.
+
+    With --restarts K the game is rebuilt in segments of --segment frames: each segment is searched
+    K times (different random candidates) from the same starting point, and the attempt whose
+    replay is closest to the PERCEIVED states (no ground truth) is kept before the next segment.
+    One unlucky choice then spoils at most one attempt, not the rest of the game (measured
+    2026-10-30: whole-game runs vary a lot, and the perceived-state cost picks the truly best run)."""
     sha, path, probs, per, ports, end, args, out_dir, oracle, perceived, stage = job
     t_start = time.time()
-    rng = np.random.default_rng(args["seed"])
     base_tgt, base_btn, base_raw = most_likely(probs)
     if args["true_inputs"]:                      # DIAGNOSTIC: start from the true inputs
         T0 = len(base_tgt)
         base_tgt, base_btn, base_raw = oracle[0][:T0].astype(np.int64), oracle[1][:T0], oracle[2][:T0]
-    cur_raw = base_raw.copy()                    # raw main-stick bytes of every frame (UCF 0.84 reads them)
-    cur_tgt, cur_btn = base_tgt.copy(), base_btn.copy()
     T = len(base_tgt)
+    # the chosen inputs so far (raw = raw main-stick bytes, UCF 0.84 reads them)
+    cur = {"tgt": base_tgt.copy(), "btn": base_btn.copy(), "raw": base_raw.copy()}
 
     # Starting file: the original as a template (settings, stage, characters, start seed) with
     # the model's most likely inputs from frame 0 on, so even frames played before we take
     # control (the engine hands over at frame 1) use model inputs.
-    first_tgt, first_btn, first_raw = base_tgt, base_btn, cur_raw
+    first_tgt, first_btn, first_raw = base_tgt, base_btn, base_raw
     if oracle is not None:                       # DIAGNOSTIC: frames played before we take control
         T0 = len(base_tgt)
         first_tgt, first_btn, first_raw = oracle[0][:T0].astype(np.int64), oracle[1][:T0], oracle[2][:T0]
@@ -303,83 +408,65 @@ def run_game(job):
     base_slp = f"{out_dir}/{sha[:12]}_start.slp"
     write_inputs(path, base_slp, values)
 
-    H, L = args["chunk"], args["lookahead"]
+    ctx = (probs, (base_tgt, base_btn, base_raw), per, ports, T, args, oracle)
     replanner = Replanner(args["m2"], perceived, stage) if args["replan"] else None
-    choices = {}
-    gain = []
+    stats = {"choices": {}, "gain": []}
     seeds = {}                                   # frame -> random seed chosen there (--seeds)
+    final_rows = {}                              # frame -> the exact override rows played
+    track_cost = 0.0                             # cost vs the perceived states of the kept attempts
+    restarts = max(1, args["restarts"])
+    segment = args["segment"] if restarts > 1 else end
+    seg_start, last_frame = 1, 1
+    while seg_start < end:
+        seg_stop = min(seg_start + segment, end)
+        best = None
+        for k in range(restarts):
+            rng = np.random.default_rng([args["seed"], seg_start, k])
+            trial_cur = {key: v.copy() for key, v in cur.items()}
+            trial_seeds, trial_rows = dict(seeds), {}
+            sim_before = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
+            with Engine(base_slp, codes=CODES) as e:
+                e.frame_seeds(False)
+                st = fast_forward(e, final_rows, seeds, seg_start, ports, None)
+                st, seg_cost = search_stretch(e, st, seg_stop, ctx, trial_cur, trial_seeds, trial_rows, rng,
+                                              replanner, stats)
+                # judge the end state too: play on --lookahead frames with the model's inputs
+                tail = 0.0
+                if in_match(st) and restarts > 1:
+                    t0 = st["match_frame"] + 1
+                    stop = min(t0 + args["lookahead"], T)
+                    e.override_many(override_rows(trial_cur["tgt"], trial_cur["btn"], trial_cur["raw"], t0, stop, ports))
+                    try:
+                        tail = cost(e.steps(stop - t0), t0, per, ports)
+                    except RuntimeError:
+                        pass
+            total = seg_cost + tail
+            sim_after = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
+            if best is None or total < best[0]:
+                best = (total, seg_cost, trial_cur, trial_seeds, trial_rows, sim_after, st)
+            if replanner:                        # the next attempt starts from the same history
+                replanner.sim = sim_before
+        _, seg_cost, cur, seeds, rows, sim_after, st = best
+        final_rows.update(rows)
+        if replanner:
+            replanner.sim = sim_after
+        track_cost += seg_cost
+        last_frame = int(st["match_frame"])
+        if not in_match(st) or last_frame < seg_stop:
+            break                                # the rebuilt game ended (or the replay file did)
+        seg_start = seg_stop
+
+    # the output: replay all chosen inputs and seeds once more and record that game
     with Engine(base_slp, codes=CODES) as e:
         e.frame_seeds(False)
-        st = e.state()
-        while in_match(st) and st["match_frame"] < end:
-            t0 = st["match_frame"] + 1           # the next frame the engine plays
-            n = min(H, end - st["match_frame"])
-            span_end = min(t0 + n + L, T)
-            long_end = min(t0 + n + args["long_lookahead"], T)
-            if not args["open_loop"]:
-                e.capture()
-                replan = replanner.probs(t0, n) if replanner else None
-                def trial(i, tgt, btn, raw, stop):
-                    """Cost of playing these inputs for player i in this chunk, judged up to frame stop."""
-                    trial_tgt, trial_btn, trial_raw = cur_tgt.copy(), cur_btn.copy(), cur_raw.copy()
-                    trial_tgt[t0:t0 + n, i], trial_btn[t0:t0 + n, i], trial_raw[t0:t0 + n, i] = tgt, btn, raw
-                    e.restore()
-                    e.override_many(override_rows(trial_tgt, trial_btn, trial_raw, t0, stop, ports))
-                    return cost(e.steps(stop - t0), t0, per, ports)
-
-                for i in range(2):               # player by player (the other keeps its best so far)
-                    mine = {k: v[:, i] for k, v in replan.items()} if replan else None
-                    scored = [(trial(i, tgt, btn, raw, span_end), name, tgt, btn, raw) for name, tgt, btn, raw in
-                              candidates(probs, (base_tgt, base_btn, base_raw), i, t0, n, args["samples"], rng,
-                                         oracle, mine, args["replan_samples"])]
-                    if long_end > span_end:
-                        # Two stages: the few best candidates are judged again over a LONGER stretch
-                        # (some input differences only show up 10-30 frames later; measured
-                        # 2026-10-30: look-ahead 30 instead of 10 raised the oracle check 0.81 -> 0.89).
-                        finalists = sorted(range(len(scored)), key=lambda k: scored[k][0])[:args["finalists"]]
-                        if 0 not in finalists:
-                            finalists.append(0)          # always keep "base" as a finalist
-                        scored = [(trial(i, *scored[k][2:], long_end), *scored[k][1:]) for k in finalists]
-                    best = min(scored, key=lambda s: s[0])
-                    gain.append(next(c for c, name, *_ in scored if name == "base") - best[0])
-                    choices[best[1]] = choices.get(best[1], 0) + 1
-                    cur_tgt[t0:t0 + n, i], cur_btn[t0:t0 + n, i], cur_raw[t0:t0 + n, i] = best[2], best[3], best[4]
-                if args["seeds"]:
-                    # The random seed is also ours to choose (it decides e.g. which tumble animation a
-                    # launched character gets, Dreamland's wind, Fountain of Dreams' platforms). Keep
-                    # the game's own seed unless a random new one clearly fits the video better.
-                    rows = override_rows(cur_tgt, cur_btn, cur_raw, t0, span_end, ports)
-                    e.restore()
-                    e.override_many(rows)
-                    keep_cost = cost(e.steps(span_end - t0), t0, per, ports)
-                    trials = []
-                    for seed in rng.integers(0, 2**32, args["seeds"]):
-                        e.restore()
-                        e.override_many(rows)
-                        e.override_seed(t0, int(seed))
-                        trials.append((cost(e.steps(span_end - t0), t0, per, ports), int(seed)))
-                    best_seed = min(trials)
-                    if best_seed[0] < keep_cost - 0.5:
-                        seeds[t0] = best_seed[1]
-                        choices["seed"] = choices.get("seed", 0) + 1
-                e.restore()
-                if t0 in seeds:
-                    e.override_seed(t0, seeds[t0])
-            e.override_many(override_rows(cur_tgt, cur_btn, cur_raw, t0, span_end, ports))
-            try:
-                played = e.steps(n)
-            except RuntimeError:                 # the engine stopped (the replay file ended)
-                break
-            if replanner:
-                for k, state in enumerate(played):
-                    replanner.record(t0 + k, state, ports)
-            st = played[-1]
+        st = fast_forward(e, final_rows, seeds, last_frame, ports)
         data = e.record()
     out = f"{out_dir}/{sha[:12]}.slp"
     open(out, "wb").write(data)
     os.remove(base_slp)
     return {"game": sha[:12], "seconds": round(time.time() - t_start, 1), "last_frame": int(st["match_frame"]),
-            "choices": json.dumps(choices), "mean_gain": float(np.mean(gain)) if gain else 0.0}
+            "choices": json.dumps(stats["choices"]),
+            "mean_gain": float(np.mean(stats["gain"])) if stats["gain"] else 0.0, "track_cost": track_cost}
 
 
 # ---- main --------------------------------------------------------------------------------
@@ -397,6 +484,8 @@ def main():
     ap.add_argument("--long-lookahead", type=int, default=0,
                     help="judge the best --finalists candidates again over this many frames (0 = off)")
     ap.add_argument("--finalists", type=int, default=3)
+    ap.add_argument("--restarts", type=int, default=1, help="attempts per segment; the one closest to the video is kept")
+    ap.add_argument("--segment", type=int, default=300, help="frames per segment (with --restarts > 1)")
     ap.add_argument("--open-loop", action="store_true", help="no search: the model's most likely inputs")
     ap.add_argument("--replan", action="store_true",
                     help="also try the model's inputs computed from the engine's own recent states")
