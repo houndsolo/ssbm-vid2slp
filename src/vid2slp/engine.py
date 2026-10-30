@@ -17,6 +17,7 @@ per command (protocol "MUCONTROL 2", port/linux/retrace_control.cpp):
     override ...       replace a frame's inputs       (replay_source.h)
     override-state ... replace a frame's stored state (used with resync)
     clear-overrides
+    frame-seeds 0|1    0 = don't force the file's per-frame random seeds
     record             the played game so far, as a .slp file
 After every step / capture / restore the engine answers with a STATE line:
     STATE retraces,scene_major,scene,match_frame,rng, then for each of 4 ports:
@@ -25,7 +26,8 @@ After every step / capture / restore the engine answers with a STATE line:
 
 Usage:
     with Engine("data/m4/x.slp") as e:
-        s = e.state()               # first frame of the match
+        s = e.state()               # after Slippi frame s["match_frame"] (= 1 at the start)
+        e.override(s["match_frame"] + 1, port, ...)   # inputs of the NEXT frame
         e.capture()
         s = e.step()
 """
@@ -64,14 +66,44 @@ def parse_state(line):
     return out
 
 
+def trim_to_complete_frames(data):
+    """Cut a recorded .slp after its last COMPLETE frame (the last Frame Bookend event, 0x3C).
+
+    A recording taken in the middle of a game ends with a frame whose events are not all
+    written yet; replay parsers (peppi) reject that. The raw block's length field is fixed up.
+    """
+    i = data.find(b"raw[$U#l") + 12          # first byte of the raw event stream (0x35)
+    raw_size = struct.unpack(">I", data[i - 4:i])[0]
+    n = data[i + 1]
+    sizes = {data[i + 2 + 3 * k]: struct.unpack(">H", data[i + 3 + 3 * k:i + 5 + 3 * k])[0]
+             for k in range((n - 1) // 3)}
+    end = i + raw_size if raw_size else len(data)
+    pos, cut = i + 1 + n, None
+    while pos < end:
+        command = data[pos]
+        if command not in sizes:
+            break
+        pos += 1 + sizes[command]
+        if command == 0x3C:                  # Frame Bookend: everything up to here is complete
+            cut = pos
+    if cut is None or cut == end:
+        return data
+    return data[:i - 4] + struct.pack(">I", cut - i) + data[i:cut] + data[end:]
+
+
 class Engine:
-    def __init__(self, slp, resync=False, log_file=None, boot_limit=6000):
+    def __init__(self, slp, resync=False, log_file=None, boot_limit=6000, codes=None):
+        """slp: the replay to play. codes (optional): a file with a raw Gecko code list to use
+        instead of the replay's own, e.g. data/m4/ucf084_gecko.bin (UCF 0.84, the only UCF the
+        engine implements); the recording then carries that list too."""
         ours, theirs = socket.socketpair()
         cmd = [HEADLESS, "--iso", ISO, "--game-library", GAME, "--headless", "--fast",
                "--replay", os.path.abspath(slp), "--replay-sys", SYS,
                "--control-fd", str(theirs.fileno()), "--boot-limit", str(boot_limit)]
         if resync:
             cmd.append("--replay-resync")
+        if codes:
+            cmd += ["--replay-codes", os.path.abspath(codes)]
         if log_file:
             cmd += ["--log-file", log_file]
         self.proc = subprocess.Popen(cmd, pass_fds=[theirs.fileno()], stdout=subprocess.DEVNULL,
@@ -131,6 +163,30 @@ class Engine:
         self._send(f"override-state {frame} {port} {x:.9g} {y:.9g} {facing:.9g} {int(action)} {percent:.9g}")
         self._expect_ok()
 
+    def override_many(self, rows):
+        """Several overrides at once (sent together, then the replies are read: much faster than
+        one round trip each). rows: list of argument tuples for override()."""
+        lines = [f"override {f} {p} {sx:.9g} {sy:.9g} {cx:.9g} {cy:.9g} {tr:.9g} {int(b)} "
+                 f"{int(rx)} {int(ry)} {int(rcx)} {int(rcy)}"
+                 for f, p, sx, sy, cx, cy, tr, b, rx, ry, rcx, rcy in rows]
+        if lines:
+            self._send("\n".join(lines))
+        for _ in lines:
+            self._expect_ok()
+
+    def steps(self, n):
+        """Advance n frames; returns the n states (sent together, like override_many)."""
+        self._send("\n".join([NEUTRAL_STEP] * n))
+        out = [parse_state(self._line()) for _ in range(n)]
+        self._state = out[-1]
+        return out
+
+    def frame_seeds(self, on):
+        """False: stop forcing the replay's per-frame random seeds (a rebuilt game must not use
+        the original game's seeds; the game's own RNG runs on and the recording stores it)."""
+        self._send(f"frame-seeds {1 if on else 0}")
+        self._expect_ok()
+
     def clear_overrides(self):
         self._send("clear-overrides")
         self._expect_ok()
@@ -140,8 +196,8 @@ class Engine:
         if reply != "OK":
             raise RuntimeError(reply)
 
-    def record(self):
-        """The game played so far, as .slp bytes."""
+    def record(self, trim=True):
+        """The game played so far, as .slp bytes (cut after the last complete frame)."""
         self._send("record")
         head = self._line()
         if not head.startswith("REPLAY "):
@@ -155,7 +211,7 @@ class Engine:
             chunks.append(line)
         data = bytes.fromhex("".join(chunks))
         assert len(data) == size
-        return data
+        return trim_to_complete_frames(data) if trim else data
 
     def close(self):
         try:

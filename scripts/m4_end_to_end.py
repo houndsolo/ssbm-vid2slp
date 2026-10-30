@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from vid2slp.assemble import load_rules, place_deaths, snap_to_ground, start_of_frame
+from vid2slp.assemble import load_rules, place_deaths, replay_scores as compare, snap_to_ground, start_of_frame
 from vid2slp.id_data import FEATURE_SETS, arrays_from_states, game_arrays
 from vid2slp.id_model import build_from_config, predict_split
 from vid2slp.id_to_slp import processed_sequence
@@ -64,34 +64,6 @@ VARIANTS = {
     "truth_action_from_perc": ("true", "truth_but_perceived_action"),
     "truth_deaths_placed": ("true", "truth_deaths_placed"),     # needs --deaths
 }
-
-
-def compare(orig, regen, stored, end):
-    """Scores of the regenerated game vs the original (and vs the stored perceived states)."""
-    def frames(t):
-        return t[(t.frame >= 0) & (t.frame <= end)].set_index(["frame", "port"]).sort_index()
-    o, r, s = frames(orig), frames(regen), frames(stored)
-    common = o.index.intersection(r.index).intersection(s.index)
-    o, r, s = o.loc[common], r.loc[common], s.loc[common]
-    if "action_frame" not in r.columns:           # perception's own table has no animation counter
-        r = r.assign(action_frame=np.nan)
-    return {
-        "frames": int(len(common) // 2),
-        "action_match": float((o.action.to_numpy() == r.action.to_numpy()).mean()),
-        # Resync writes the action NUMBER but does not run the game's state change, so the game
-        # can keep behaving (and looking) like another state, e.g. hanging on a ledge while the
-        # number says "falling" (found 2026-10-29). The animation frame counter and the airborne
-        # flag are not forced, so they show the state the game is really in:
-        "action_anim_match": float(((o.action.to_numpy() == r.action.to_numpy())
-                                    & (np.abs(o.action_frame.to_numpy() - r.action_frame.to_numpy()) <= 1)).mean()),
-        "airborne_match": float((o.airborne.to_numpy() == r.airborne.to_numpy()).mean()),
-        "x_err": float(np.abs(o.x - r.x).mean()), "y_err": float(np.abs(o.y - r.y).mean()),
-        "percent_err": float(np.abs(o.percent - r.percent).mean()),
-        "stocks_match": float((o.stocks.to_numpy() == r.stocks.to_numpy()).mean()),
-        # how closely the playback followed the states we stored (perception's guesses)
-        "follows_stored_action": float((s.action.to_numpy() == r.action.to_numpy()).mean()),
-        "follows_stored_x": float(np.abs(s.x - r.x).mean()),
-    }
 
 
 def main():

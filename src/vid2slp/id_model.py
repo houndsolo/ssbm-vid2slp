@@ -190,6 +190,41 @@ def predict_split(model, split, device, window=256, batch=128):
     return pred_tgt, pred_btn
 
 
+@torch.no_grad()
+def predict_probs(model, num_all, cat_all, device, window=256, batch=64):
+    """Like predict_split for ONE game, but returns the model's probabilities instead of only
+    the most likely values (Stage C's closed loop samples alternative inputs from them).
+
+    num_all [T, 2, F], cat_all [T, 2, C] (arrays_from_states). Returns float16 arrays:
+        axes [T, 2, 4, 161]   probability of each stick / c-stick value (-80..80)
+        trigger [T, 2, 141]   probability of each trigger value (0..140)
+        buttons [T, 2, len(BUTTONS)]   probability that each logical button bit is set
+    """
+    model.eval()
+    n = len(num_all)
+    axes = np.zeros((n, 2, 4, 161), np.float16)
+    trigger = np.zeros((n, 2, 141), np.float16)
+    buttons = np.zeros((n, 2, len(BUTTONS)), np.float16)
+    jobs = window_jobs(np.array([0, n]), window)
+    for self_port in (0, 1):
+        order = [self_port, 1 - self_port]
+        for i in range(0, len(jobs), batch):
+            chunk = jobs[i:i + batch]
+            idx = np.stack([np.arange(s, s + window) for s, _, _ in chunk])
+            num = torch.from_numpy(np.asarray(num_all[idx.ravel()])[:, order]).to(device)
+            cat = torch.from_numpy(np.asarray(cat_all[idx.ravel()])[:, order]).to(device)
+            with torch.autocast("cuda", dtype=torch.float16):
+                out = model(num.view(len(chunk), window, 2, -1), cat.view(len(chunk), window, 2, -1))
+            a = torch.stack([o.float().softmax(-1) for o in out["axes"]], dim=2).cpu().numpy()
+            t = out["trigger"].float().softmax(-1).cpu().numpy()
+            b = torch.sigmoid(out["buttons"].float()).cpu().numpy()
+            for row, (s, keep_from, keep_to) in enumerate(chunk):
+                axes[keep_from:keep_to, self_port] = a[row, keep_from - s:keep_to - s]
+                trigger[keep_from:keep_to, self_port] = t[row, keep_from - s:keep_to - s]
+                buttons[keep_from:keep_to, self_port] = b[row, keep_from - s:keep_to - s]
+    return {"axes": axes, "trigger": trigger, "buttons": buttons}
+
+
 def build_from_config(cfg, num_features):
     """Recreate a model from a checkpoint's saved config (older configs lack the new keys)."""
     return InverseDynamics(cfg["d_model"], cfg["layers"], cfg["heads"], 0.0, cfg["window"],

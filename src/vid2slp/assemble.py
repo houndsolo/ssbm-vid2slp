@@ -131,3 +131,32 @@ def place_deaths(table, stage_id):
         out.loc[out.index[rows], "x"] = x
         out.loc[out.index[rows], "y"] = y
     return out, deaths
+
+
+def replay_scores(orig, regen, stored, end):
+    """Scores of a regenerated game vs the original (and vs the stored perceived states), frames
+    0..end. Used by scripts/m4_end_to_end.py and scripts/m4_closed_loop.py."""
+    def frames(t):
+        return t[(t.frame >= 0) & (t.frame <= end)].set_index(["frame", "port"]).sort_index()
+    o, r, s = frames(orig), frames(regen), frames(stored)
+    common = o.index.intersection(r.index).intersection(s.index)
+    o, r, s = o.loc[common], r.loc[common], s.loc[common]
+    if "action_frame" not in r.columns:           # perception's own table has no animation counter
+        r = r.assign(action_frame=np.nan)
+    return {
+        "frames": int(len(common) // 2),
+        "action_match": float((o.action.to_numpy() == r.action.to_numpy()).mean()),
+        # Resync writes the action NUMBER but does not run the game's state change, so the game
+        # can keep behaving (and looking) like another state, e.g. hanging on a ledge while the
+        # number says "falling" (found 2026-10-29). The animation frame counter and the airborne
+        # flag are not forced, so they show the state the game is really in:
+        "action_anim_match": float(((o.action.to_numpy() == r.action.to_numpy())
+                                    & (np.abs(o.action_frame.to_numpy() - r.action_frame.to_numpy()) <= 1)).mean()),
+        "airborne_match": float((o.airborne.to_numpy() == r.airborne.to_numpy()).mean()),
+        "x_err": float(np.abs(o.x - r.x).mean()), "y_err": float(np.abs(o.y - r.y).mean()),
+        "percent_err": float(np.abs(o.percent - r.percent).mean()),
+        "stocks_match": float((o.stocks.to_numpy() == r.stocks.to_numpy()).mean()),
+        # how closely the playback followed the states we stored (perception's guesses)
+        "follows_stored_action": float((s.action.to_numpy() == r.action.to_numpy()).mean()),
+        "follows_stored_x": float(np.abs(s.x - r.x).mean()),
+    }

@@ -15,7 +15,7 @@ index 1af4548..17f5848 100644
  target_compile_options(headless_services PRIVATE -Wall -Wextra -fno-strict-aliasing -ffp-contract=on)
  target_link_libraries(headless_services PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
 diff --git a/port/linux/host_services.cpp b/port/linux/host_services.cpp
-index 349b2a8..f31cda5 100644
+index 349b2a8..f84d33b 100644
 --- a/port/linux/host_services.cpp
 +++ b/port/linux/host_services.cpp
 @@ -6,6 +6,7 @@
@@ -59,7 +59,7 @@ index 349b2a8..f31cda5 100644
    if (!reserve_memory(error)) return startup_failed();
    if (!cfg.input_script.empty() && !input_script.load(cfg.input_script,error)) return startup_failed();
 +  // vid2slp: a replay to play (before make_api, which installs the replay callbacks)
-+  if (!cfg.replay_path.empty() && !replay::load(cfg.replay_path, cfg.replay_sys_dir, cfg.replay_resync)) {
++  if (!cfg.replay_path.empty() && !replay::load(cfg.replay_path, cfg.replay_sys_dir, cfg.replay_resync, cfg.replay_codes_path)) {
 +    fail(error, "cannot load replay " + cfg.replay_path);
 +    return startup_failed();
 +  }
@@ -92,10 +92,10 @@ index 349b2a8..f31cda5 100644
 +void replay_log(const char* text) { host::log("%s", text); }
 +}
 diff --git a/port/linux/host_services.h b/port/linux/host_services.h
-index f1c4aed..ca182c7 100644
+index f1c4aed..d9e2fe9 100644
 --- a/port/linux/host_services.h
 +++ b/port/linux/host_services.h
-@@ -38,6 +38,10 @@ struct Config {
+@@ -38,6 +38,11 @@ struct Config {
    bool has_stock_rules = false;
    int32_t stock_seconds = 0;
    int32_t stock_count = 0;
@@ -103,11 +103,12 @@ index f1c4aed..ca182c7 100644
 +  std::string replay_path;
 +  std::string replay_sys_dir;
 +  bool replay_resync = false;
++  std::string replay_codes_path;   // optional: use this raw Gecko code list instead of the file's
  };
  
  struct Counters {
 diff --git a/port/linux/main.cpp b/port/linux/main.cpp
-index 1c4a066..0e81efc 100644
+index 1c4a066..2d0a611 100644
 --- a/port/linux/main.cpp
 +++ b/port/linux/main.cpp
 @@ -2,6 +2,7 @@
@@ -122,11 +123,11 @@ index 1c4a066..0e81efc 100644
              "              [--stock-rules 'seconds stocks'] (60..600 in whole minutes; 1..4 stocks)\n"
              "              [--control-fd N --boot-limit N] (headless/fast; one VI per step)\n"
              "              [--control-preroll] (pause as soon as both fighters exist)\n"
-+            "              [--replay file.slp [--replay-sys SysDir] [--replay-resync]] (vid2slp)\n"
++            "              [--replay file.slp [--replay-sys SysDir] [--replay-resync] [--replay-codes gecko.bin]] (vid2slp)\n"
              "  melee_linux --memory-self-test | --version\n"
              "\nRequires a retail NTSC 1.02 ISO. Default display: 120 FPS; gameplay: 60 Hz.\n"
              "Keyboard: arrows = stick, Z/X/C/V = A/B/X/Y, Enter = Start,\n"
-@@ -205,6 +207,10 @@ int main(int argc, char** argv) {
+@@ -205,6 +207,11 @@ int main(int argc, char** argv) {
          if (value > UINT32_MAX) throw std::runtime_error("rng seed exceeds uint32");
          config.has_rng_seed = true; config.rng_seed = static_cast<uint32_t>(value);
        }
@@ -134,10 +135,11 @@ index 1c4a066..0e81efc 100644
 +      else if (arg == "--replay") config.replay_path = next();
 +      else if (arg == "--replay-sys") config.replay_sys_dir = next();
 +      else if (arg == "--replay-resync") config.replay_resync = true;
++      else if (arg == "--replay-codes") config.replay_codes_path = next();
        else if (arg == "--time-base") {
          config.has_time_base = true; config.time_base = number(next(), "time base");
        }
-@@ -234,8 +240,9 @@ int main(int argc, char** argv) {
+@@ -234,8 +241,9 @@ int main(int argc, char** argv) {
  #ifndef MELEE_LINUX_GRAPHICS
      if (!config.headless) throw std::runtime_error("this build has no graphics; rebuild with MELEE_LINUX_GRAPHICS=ON");
  #endif
@@ -149,7 +151,7 @@ index 1c4a066..0e81efc 100644
      if (config.has_stock_rules && !config.has_match)
        throw std::runtime_error("--stock-rules requires an explicit --match");
      config.volatile_card = control_fd >= 0;
-@@ -265,6 +272,8 @@ int main(int argc, char** argv) {
+@@ -265,6 +273,8 @@ int main(int argc, char** argv) {
            if (!observer.digest) throw std::runtime_error("cannot flush checkpoint trace");
          }
        }, linux_host::recorded_replay, linux_host::recording_status, control_preroll);
@@ -158,12 +160,47 @@ index 1c4a066..0e81efc 100644
      if (observer.control || observer.digest.is_open()) linux_host::set_frame_observer(observe, &observer);
      const int result = linux_host::run();
  #ifdef MELEE_LINUX_GRAPHICS
+diff --git a/port/linux/process_checkpoint.cpp b/port/linux/process_checkpoint.cpp
+index eabb707..482d579 100644
+--- a/port/linux/process_checkpoint.cpp
++++ b/port/linux/process_checkpoint.cpp
+@@ -11,7 +11,17 @@
+ namespace linux_host {
+ ProcessCheckpoint::~ProcessCheckpoint() { if (restore_fd_ >= 0) close(restore_fd_); }
+ unsigned ProcessCheckpoint::capture() {
+-  if (active()) throw std::runtime_error("one checkpoint per session; close/start to capture another");
++  if (active()) {
++    // vid2slp: MOVE the checkpoint to here (a simulator steps forward and saves again and again).
++    // We are a branch; our parent is the frozen copy of the old checkpoint, blocked in waitpid.
++    // Stop dying with it, end it (it is never needed again), and capture afresh below with this
++    // process as the new frozen parent, so there are never more than two processes.
++    if (prctl(PR_SET_PDEATHSIG, 0) != 0) throw std::runtime_error("checkpoint prctl failed");
++    const pid_t old_parent = getppid();
++    close(restore_fd_);
++    restore_fd_ = -1;
++    kill(old_parent, SIGKILL);
++  }
+   unsigned threads = 0;
+   for (const auto& ignored : std::filesystem::directory_iterator("/proc/self/task")) { (void)ignored; ++threads; }
+   if (threads != 1) throw std::runtime_error("checkpoint requires exactly one native thread");
+diff --git a/port/linux/process_checkpoint.h b/port/linux/process_checkpoint.h
+index acbc199..bb256f7 100644
+--- a/port/linux/process_checkpoint.h
++++ b/port/linux/process_checkpoint.h
+@@ -7,6 +7,7 @@ class ProcessCheckpoint {
+   ~ProcessCheckpoint();
+   // Parent retains the stack here and supervises one running branch. Returns in
+   // the branch only: 0 on capture, >0 after each restore from this same parent.
++  // vid2slp: capturing again (from a branch) moves the checkpoint to the current state.
+   unsigned capture();
+   [[noreturn]] void restore();
+   bool active() const { return restore_fd_ >= 0; }
 diff --git a/port/linux/replay_source.cpp b/port/linux/replay_source.cpp
 new file mode 100644
-index 0000000..3c1c812
+index 0000000..d72b35b
 --- /dev/null
 +++ b/port/linux/replay_source.cpp
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,324 @@
 +// vid2slp addition: Slippi replay playback for the headless Linux host. See replay_source.h.
 +// Ported from port/app/source_host.cpp (set_replay, h_replay_frame, replay_codes,
 +// read_replay_event) and port/runtime/hle/slippi_playback.cpp (gameplay_codes), without the
@@ -205,6 +242,9 @@ index 0000000..3c1c812
 +struct StateOverride { float x, y, facing; uint32_t action; float percent; };
 +std::map<std::pair<int32_t, int32_t>, InputOverride> input_overrides;
 +std::map<std::pair<int32_t, int32_t>, StateOverride> state_overrides;
++// "frame-seeds 0": don't force the file's per-frame random seeds (a rebuilt game must not use the
++// original's seeds; the RNG then runs on from the game start seed, and the recording stores it).
++bool use_frame_seeds = true;
 +
 +void logf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 +void logf(const char* fmt, ...) {
@@ -348,7 +388,7 @@ index 0000000..3c1c812
 +
 +}  // namespace
 +
-+bool load(const std::string& path, const std::string& sys_dir, bool resync) {
++bool load(const std::string& path, const std::string& sys_dir, bool resync, const std::string& codes_path) {
 +  game = Slippi::SlippiGame::FromFile(path);
 +  if (!game || !game->AreSettingsLoaded()) {
 +    logf("replay: cannot read %s", path.c_str());
@@ -363,6 +403,12 @@ index 0000000..3c1c812
 +  }
 +  Slippi::GameSettings* s = game->GetSettings();
 +  codes_list = s->geckoCodes;
++  if (!codes_path.empty()) {
++    std::ifstream f(codes_path, std::ios::binary);
++    codes_list.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
++    if (codes_list.empty()) { logf("replay: cannot read code list %s", codes_path.c_str()); game.reset(); return false; }
++    logf("replay: using the code list from %s instead of the replay's", codes_path.c_str());
++  }
 +  std::array<uint32_t, Slippi::GAME_INFO_HEADER_SIZE> header = s->header;
 +  // Dolphin's prepareGameInfo: a player who is Sheik or Zelda gets that character in the header.
 +  for (int i = 0; i < 4; ++i) {
@@ -397,7 +443,7 @@ index 0000000..3c1c812
 +  if (!game || !game->DoesFrameExist(index)) { out->result = MU_REPLAY_TERMINATE; return; }
 +  Slippi::FrameData* f = game->GetFrame(index);
 +  out->result = MU_REPLAY_CONTINUE;
-+  out->seed_exists = f->randomSeedExists ? 1 : 0;
++  out->seed_exists = f->randomSeedExists && use_frame_seeds ? 1 : 0;
 +  out->seed = f->randomSeed;
 +  for (uint8_t port = 0; port < 4; ++port) {
 +    for (int follower = 0; follower < 2; ++follower) {
@@ -450,6 +496,13 @@ index 0000000..3c1c812
 +    *reply = "OK\n";
 +    return true;
 +  }
++  if (name == "frame-seeds") {
++    int on = 1;
++    in >> on;
++    use_frame_seeds = on != 0;
++    *reply = "OK\n";
++    return true;
++  }
 +  if (name != "override" && name != "override-state") return false;
 +  int32_t index = 0, port = 0;
 +  in >> index >> port;
@@ -474,10 +527,10 @@ index 0000000..3c1c812
 +}  // namespace linux_host::replay
 diff --git a/port/linux/replay_source.h b/port/linux/replay_source.h
 new file mode 100644
-index 0000000..bd63dbe
+index 0000000..6c7a43c
 --- /dev/null
 +++ b/port/linux/replay_source.h
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,52 @@
 +// vid2slp addition: Slippi replay playback for the HEADLESS Linux host (host API version 9).
 +// The desktop host (port/app/source_host.cpp, --replay) has this; the headless host did not.
 +// The game library already contains Slippi's playback codes natively (sourceport/game/shim/
@@ -499,7 +552,10 @@ index 0000000..bd63dbe
 +
 +// Load a .slp. sys_dir is a Slippi Playback "Sys" folder (its Slippi/InjectionLists say which of
 +// the replay's Gecko codes affect gameplay). Returns false (and logs) on failure.
-+bool load(const std::string& path, const std::string& sys_dir, bool resync);
++// codes_path (optional): a file with a raw Gecko code list to use INSTEAD of the replay's own (both
++// for playing and in the new recording). vid2slp writes UCF 0.84 this way, the only UCF version
++// the game library implements.
++bool load(const std::string& path, const std::string& sys_dir, bool resync, const std::string& codes_path = "");
 +bool active();
 +
 +// Host API callbacks (see MuHostApi in port/runtime/abi/mu_host.h).
@@ -518,6 +574,8 @@ index 0000000..bd63dbe
 +//       replace the inputs (processed floats, processed button word, raw stick bytes)
 +//   override-state <frame> <port> <x> <y> <facing> <action> <percent>
 +//       replace the stored start-of-frame state that resync forces (only used with resync on)
++//   frame-seeds <0|1>
++//       0 = don't force the file's per-frame random seeds
 +//   clear-overrides
 +//       forget all overrides
 +// Overrides live in this process's memory, so a checkpoint restore brings back the overrides that
