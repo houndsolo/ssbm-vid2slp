@@ -502,14 +502,15 @@ def run_game(job):
         seg_cost_now = round(float(best[0]) / best[7], 2)   # best cost per judged frame
         stats.setdefault("seg_cost", []).append(seg_cost_now)
 
-        # --backtrack: still poor, but the previous segment looked fine. Often the mistake was
+        # --backtrack: still poor, but the previous segment looked fine (or this one is at least
+        # twice as poor as the previous one: game 987e, seed 1, 4.3 -> 9.8 per frame). Often the mistake was
         # made near the end of the previous segment and only shows later (2026-10-30, game 6cd8:
         # a throw in the wrong direction at frame ~590 and a death at 718), so no attempt of this
         # segment can fix it. Search both segments again together, from where the previous one
         # started, and keep that only if it fits the video better than what we have.
         backtracked = False
         if (args["backtrack"] > 0 and seg_cost_now > threshold and prev is not None
-                and prev["cost_per_frame"] <= threshold):
+                and (prev["cost_per_frame"] <= threshold or seg_cost_now >= 2 * prev["cost_per_frame"])):
             # what we have now, as one attempt over both segments
             p = prev
             joined_rows = dict(p["rows"])
