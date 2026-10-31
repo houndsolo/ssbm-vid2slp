@@ -25,7 +25,8 @@ Information the rebuilt game must not borrow from the original game (honesty rul
   - states: the engine's own (resync is OFF, the original's stored states are never used);
   - per-frame random seeds: NOT forced (Engine.frame_seeds(False)); the RNG runs on from the
     game start seed. Still borrowed for now (known shortcut, also in m4_end_to_end.py):
-    stage, characters, costumes, ports, the game start seed, frames before 2 (countdown).
+    stage, characters, costumes, ports, the game start seed (unless --start-seed), frames
+    before 2 (countdown).
   - Gecko codes: our fixed UCF 0.84 list (data/m4/ucf084_gecko.bin), not the original's.
 
 Scores: same as m4_end_to_end.py (src/vid2slp/assemble.py replay_scores), frames 0..--end, on
@@ -448,6 +449,11 @@ def run_game(job):
     replanner = Replanner(args["m2"], perceived, stage) if args["replan"] else None
     stats = {"choices": {}, "gain": []}
     seeds = {}                                   # frame -> random seed chosen there (--seeds)
+    if args["start_seed"] >= 0:
+        # Don't borrow the original game's random numbers: force our own seed at frame 2, the
+        # first frame we play (frames up to 1 are played on load, during the countdown only).
+        # The recording stores it, so Slippi Playback uses it too.
+        seeds[2] = int(np.random.default_rng([args["start_seed"], 777]).integers(0, 2**32))
     final_rows = {}                              # frame -> the exact override rows played
     track_cost = 0.0                             # cost vs the perceived states of the kept attempts
     restarts = max(1, args["restarts"])
@@ -465,6 +471,8 @@ def run_game(job):
         with Engine(base_slp, codes=CODES) as e:
             e.frame_seeds(False)
             st = fast_forward(e, final_rows, seeds, a_start, ports, None)
+            if a_start < 2 and 2 in seeds:       # --start-seed: before the first checkpoint, so
+                e.override_seed(2, seeds[2])     # every candidate of the first chunk uses it too
             st, a_cost = search_stretch(e, st, a_stop, ctx, trial_cur, trial_seeds, trial_rows, rng,
                                         replanner, stats)
             # judge the end state too: play on --lookahead frames with the model's inputs
@@ -597,6 +605,9 @@ def main():
                          "one still fits poorly but the previous one looked fine (0 = off)")
     ap.add_argument("--pos-tail", type=float, default=0.0,
                     help="cost per unit of position error beyond 30 units (0 = flat cap, the old cost)")
+    ap.add_argument("--start-seed", type=int, default=-1,
+                    help="our own random seed from frame 2 on, made from this number (-1 = the original "
+                         "game's random numbers, a borrowed shortcut)")
     ap.add_argument("--seeds", type=int, default=0, help="random seeds tried per chunk (0 = never choose seeds)")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--verify", type=int, default=2, help="replay this many outputs in Slippi Playback")

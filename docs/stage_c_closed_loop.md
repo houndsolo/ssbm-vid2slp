@@ -42,7 +42,9 @@ while it chooses the inputs:
 ## Things it borrows from the original game (shortcuts still to remove)
 
 - Stage, characters, costumes, ports and the game's starting random seed come from the original
-  replay used as a template. The video would have to provide these.
+  replay used as a template. The video would have to provide these. The random numbers can
+  already be our own: `--start-seed N` forces a seed made from N at frame 2 (the first frame we
+  play; the recording stores it, checked in Slippi Playback). Effect on the scores: being measured.
 - Frames 0 and 1 are played before the loop takes control (they use the model's inputs).
 
 Things it does NOT borrow: inputs (model only), states (engine's own), the per-frame random seeds
@@ -71,7 +73,7 @@ bash scripts/native_build.sh
 .venv/bin/python scripts/m4_airborne_table.py
 
 # the 12 test games, first minute, best settings so far (in tmux; ~1 hour on the fast engine)
-# measured 2026-10-30 (cl_extra5_bt4_s0): action 0.921 / action+anim 0.827 / stocks 1.000
+# measured 2026-10-30 over 3 seeds: action 0.911 / action+anim 0.820 / stocks 0.988
 .venv/bin/python scripts/m4_closed_loop.py --game-list data/m4/test_games_ucf084.txt \
     --end 3600 --replan --lookahead 60 --restarts 3 --segment 300 \
     --extra-restarts 5 --restart-threshold 3.0 --backtrack 4 --verify 4 --tag my_run
