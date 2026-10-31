@@ -99,10 +99,22 @@ def trim_to_complete_frames(data):
 
 
 class Engine:
-    def __init__(self, slp, resync=False, log_file=None, boot_limit=6000, codes=None):
+    def __init__(self, slp, resync=False, log_file=None, boot_limit=6000, codes=None, preroll=False,
+                 frame_offset=0):
         """slp: the replay to play. codes (optional): a file with a raw Gecko code list to use
         instead of the replay's own, e.g. data/m4/ucf084_gecko.bin (UCF 0.84, the only UCF the
-        engine implements); the recording then carries that list too."""
+        engine implements); the recording then carries that list too.
+
+        preroll: hand over control at the start of the countdown (Slippi frame -123) instead of
+        at frame 1. Players can already move from frame -39. The game's own frame counter is 0
+        during the countdown, so the frame number is counted here (measured 2026-10-31: the
+        hand-over state is frame -123, and each step is one frame; it agrees with the game's
+        counter from frame 1 on and with the recorded frame numbers).
+        frame_offset: every frame number going in (overrides, seeds) and coming out ("match_frame"
+        of a state) is the Slippi frame + frame_offset. With 39 the first frame players can move
+        is 0, so arrays starting there can be indexed by frame."""
+        self.preroll, self.offset = preroll, frame_offset
+        self._count = -123                   # Slippi frame of the current state while counting
         ours, theirs = socket.socketpair()
         cmd = [HEADLESS, "--iso", ISO, "--game-library", GAME, "--headless", "--fast",
                "--replay", os.path.abspath(slp), "--replay-sys", SYS,
@@ -111,6 +123,8 @@ class Engine:
             cmd.append("--replay-resync")
         if codes:
             cmd += ["--replay-codes", os.path.abspath(codes)]
+        if preroll:
+            cmd.append("--control-preroll")
         if log_file:
             cmd += ["--log-file", log_file]
         self.proc = subprocess.Popen(cmd, pass_fds=[theirs.fileno()], stdout=subprocess.DEVNULL,
@@ -121,7 +135,8 @@ class Engine:
         hello = self._line()
         if hello != "MUCONTROL 2":
             raise RuntimeError(f"engine said {hello!r}: {self.proc.stderr.read().decode()[-2000:] if self.proc.poll() is not None else ''}")
-        self._state = parse_state(self._line())
+        self._state = self._fix(parse_state(self._line()))
+        self._saved_count = self._count
 
     def _line(self):
         line = self.reader.readline()
@@ -129,6 +144,13 @@ class Engine:
             err = self.proc.stderr.read().decode()[-2000:] if self.proc.poll() is not None else ""
             raise RuntimeError(f"engine closed the connection. {err}")
         return line.rstrip("\n")
+
+    def _fix(self, st):
+        """Put the Slippi frame (+ offset) into st["match_frame"] (see __init__)."""
+        if self.preroll and st["match_frame"] == 0:
+            st["match_frame"] = self._count
+        st["match_frame"] += self.offset
+        return st
 
     def _send(self, text):
         self.sock.sendall((text + "\n").encode("ascii"))
@@ -139,7 +161,8 @@ class Engine:
 
     def step(self):
         self._send(NEUTRAL_STEP)
-        self._state = parse_state(self._line())
+        self._count += 1
+        self._state = self._fix(parse_state(self._line()))
         return self._state
 
     def capture(self):
@@ -147,7 +170,8 @@ class Engine:
         reply = self._line()
         if reply not in ("CAPTURED", "RESTORED"):
             raise RuntimeError(f"capture failed: {reply}")
-        self._state = parse_state(self._line())
+        self._saved_count = self._count
+        self._state = self._fix(parse_state(self._line()))
         return self._state
 
     def restore(self):
@@ -155,25 +179,26 @@ class Engine:
         reply = self._line()
         if reply != "RESTORED":
             raise RuntimeError(f"restore failed: {reply}")
-        self._state = parse_state(self._line())
+        self._count = self._saved_count
+        self._state = self._fix(parse_state(self._line()))
         return self._state
 
     def override(self, frame, port, stick_x, stick_y, cstick_x, cstick_y, trigger, buttons,
                  raw_x, raw_y, raw_cx, raw_cy):
         """Replace the inputs of (Slippi) frame `frame`, port `port` (processed values)."""
-        self._send(f"override {frame} {port} {stick_x:.9g} {stick_y:.9g} {cstick_x:.9g} {cstick_y:.9g} "
+        self._send(f"override {frame - self.offset} {port} {stick_x:.9g} {stick_y:.9g} {cstick_x:.9g} {cstick_y:.9g} "
                    f"{trigger:.9g} {int(buttons)} {int(raw_x)} {int(raw_y)} {int(raw_cx)} {int(raw_cy)}")
         self._expect_ok()
 
     def override_state(self, frame, port, x, y, facing, action, percent):
         """Replace the stored start-of-frame state that resync forces on frame `frame`."""
-        self._send(f"override-state {frame} {port} {x:.9g} {y:.9g} {facing:.9g} {int(action)} {percent:.9g}")
+        self._send(f"override-state {frame - self.offset} {port} {x:.9g} {y:.9g} {facing:.9g} {int(action)} {percent:.9g}")
         self._expect_ok()
 
     def override_many(self, rows):
         """Several overrides at once (sent together, then the replies are read: much faster than
         one round trip each). rows: list of argument tuples for override()."""
-        lines = [f"override {f} {p} {sx:.9g} {sy:.9g} {cx:.9g} {cy:.9g} {tr:.9g} {int(b)} "
+        lines = [f"override {f - self.offset} {p} {sx:.9g} {sy:.9g} {cx:.9g} {cy:.9g} {tr:.9g} {int(b)} "
                  f"{int(rx)} {int(ry)} {int(rcx)} {int(rcy)}"
                  for f, p, sx, sy, cx, cy, tr, b, rx, ry, rcx, rcy in rows]
         # In batches: every "OK" reply takes ~1 KB of socket buffer on the engine's side, so
@@ -187,14 +212,17 @@ class Engine:
     def steps(self, n):
         """Advance n frames; returns the n states (sent together, like override_many)."""
         self._send("\n".join([NEUTRAL_STEP] * n))
-        out = [parse_state(self._line()) for _ in range(n)]
+        out = []
+        for _ in range(n):
+            self._count += 1
+            out.append(self._fix(parse_state(self._line())))
         self._state = out[-1]
         return out
 
     def override_seed(self, frame, seed):
         """Force random seed `seed` (32-bit) at the start of `frame`. The recording stores it and
         Slippi Playback forces it too, so a rebuilt game may choose its own seeds."""
-        self._send(f"override-seed {int(frame)} {int(seed) & 0xFFFFFFFF}")
+        self._send(f"override-seed {int(frame) - self.offset} {int(seed) & 0xFFFFFFFF}")
         self._expect_ok()
 
     def frame_seeds(self, on):

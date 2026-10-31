@@ -12,7 +12,8 @@ Training and m3_analyze.py only look at short clips. For a replay we need every 
      Game frames that never appear in the video (Dolphin skips ~0.2%) are filled from their
      neighbours: positions/% interpolated, everything else copied from the previous frame.
 
-Output: data/m3/pred/<run>/<sha256>.parquet, one row per (game frame >= 0, port), with the
+Output: data/m3/pred/<run>/<sha256>.parquet, one row per (game frame >= 0, port; with --countdown
+game frame >= -39, in data/m3/pred/<run>_countdown/), with the
 same column names as data/parsed/<sha256>.parquet (character, action, x, y, facing, percent,
 stocks, shield, airborne) plus "seen" (False = filled in, not on any video frame).
 
@@ -121,13 +122,28 @@ def predict_video(model, frames, device):
     return out
 
 
-def to_game_frames(sha, video_pred):
-    """Video-frame predictions -> table indexed by game frame 0..last (both ports)."""
-    fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy"))
+def to_game_frames(sha, video_pred, first_frame=0):
+    """Video-frame predictions -> table indexed by game frame first_frame..last (both ports).
+
+    first_frame < 0 (--countdown): also the last frames of the countdown, where the players can
+    already move (from Slippi frame -39 on). The in-game timer doesn't run yet, so the timer
+    can't place them; they are the video frames just before the first frame the timer places,
+    counted backwards (Dolphin rarely skips a frame: 9 of ~4,700 in a typical game)."""
+    fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy")).copy()
+    if first_frame < 0:
+        valid = fmap >= 0                    # (-1 in the file = no game frame for this video frame)
+        labelled = np.where(valid)[0]
+        v1, f1 = labelled[0], fmap[labelled[0]]
+        for v in range(v1 - 1, -1, -1):
+            if f1 - (v1 - v) < first_frame:
+                break
+            fmap[v], valid[v] = f1 - (v1 - v), True
+        # shift so the table can start at 0 below (undone in the "frame" column at the end)
+        fmap = np.where(valid, fmap - first_frame, -1)
     truth = pd.read_parquet(f"data/parsed/{sha}.parquet", columns=["frame", "port"])
     ports = sorted(truth.port.unique())
     last = int(truth.frame.max())
-    n = last + 1
+    n = last + 1 - first_frame
     # which video frame shows game frame f (first one if a frame were shown twice)
     video_of = np.full(n, -1)
     for v in range(len(fmap) - 1, -1, -1):
@@ -136,13 +152,13 @@ def to_game_frames(sha, video_pred):
             video_of[f] = v
     seen = video_of >= 0
     if not seen.any():
-        raise RuntimeError("no game frame >= 0 is labelled in this video")
+        raise RuntimeError("no game frame is labelled in this video")
     idx = np.where(seen)[0]
     # previous seen frame for every game frame (frames before the first seen one use the first)
     prev = idx[np.clip(np.searchsorted(idx, np.arange(n), side="right") - 1, 0, len(idx) - 1)]
     rows = []
     for slot, port in enumerate(ports):
-        col = {"frame": np.arange(n), "port": np.full(n, port), "seen": seen}
+        col = {"frame": np.arange(n) + first_frame, "port": np.full(n, port), "seen": seen}
         for k, v in video_pred.items():
             per_frame = v[video_of[prev], slot]                      # copy from previous seen frame
             if k in REG_FIELDS:                                      # numbers: interpolate instead
@@ -162,11 +178,15 @@ def main():
     ap.add_argument("--games", default=None, help="file with one sha256 per line (instead of --split)")
     ap.add_argument("--limit", type=int, default=0, help="only the first N games (0 = all)")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--countdown", action="store_true",
+                    help="also predict countdown frames -39..-1 (players can move); output in "
+                         "data/m3/pred/<run>_countdown/")
     args = ap.parse_args()
 
     cfg = json.load(open(f"data/m3/runs/{args.run}/config.json"))
     size = (cfg["width"], cfg["height"])
-    out_dir = f"data/m3/pred/{args.run}"
+    out_dir = f"data/m3/pred/{args.run}" + ("_countdown" if args.countdown else "")
+    first_frame = -39 if args.countdown else 0
     os.makedirs(out_dir, exist_ok=True)
 
     # Games: rendered, labelled, not desynced, in the wanted split.
@@ -212,7 +232,7 @@ def main():
         try:
             n_video = len(np.load(os.path.join(RENDERS, sha, "frame_map.npy")))
             assert len(video_pred["action"]) == n_video, f"{len(video_pred['action'])} predictions, {n_video} video frames"
-            table = to_game_frames(sha, video_pred)
+            table = to_game_frames(sha, video_pred, first_frame)
             table.to_parquet(f"{out_dir}/{sha}.parquet.tmp", index=False)
             os.replace(f"{out_dir}/{sha}.parquet.tmp", f"{out_dir}/{sha}.parquet")
         except Exception as e:                                   # one bad game must not stop the run

@@ -26,7 +26,9 @@ Information the rebuilt game must not borrow from the original game (honesty rul
   - per-frame random seeds: NOT forced (Engine.frame_seeds(False)); the RNG runs on from the
     game start seed. Still borrowed for now (known shortcut, also in m4_end_to_end.py):
     stage, characters, costumes, ports, the game start seed (unless --start-seed), frames
-    before 2 (countdown).
+    before 2 (countdown). With --from-video the stage comes from the video, the characters from
+    perception and the starting file is another (training) replay: nothing borrowed but ports
+    (always 1 and 2 in our library) and the countdown frames.
   - Gecko codes: our fixed UCF 0.84 list (data/m4/ucf084_gecko.bin), not the original's.
 
 Scores: same as m4_end_to_end.py (src/vid2slp/assemble.py replay_scores), frames 0..--end, on
@@ -65,6 +67,12 @@ CODES = "data/m4/ucf084_gecko.bin"
 AIRBORNE = "data/m4/airborne_by_action.json"   # scripts/m4_airborne_table.py
 HISTORY = 600   # frames of committed inputs re-processed before a chunk (X/Y and L/R alternation)
 EARLY_STOP_PIECE = 8   # a candidate is simulated in pieces of this many frames (see trial())
+COUNTDOWN = 39         # --countdown: players can move from Slippi frame -39; inside the search frame
+                       # numbers are then Slippi frame + 39 (0 = the first frame players can move)
+STAGE_PRED = "data/m3/stage_id/pred.csv"   # stage seen in the video (scripts/m3_stage_id.py)
+# perception's character numbers (the game's internal ones) -> the replay's (external) numbers;
+# only the characters in scope so far (Fox, Falco)
+INTERNAL_TO_EXTERNAL = {1: 2, 22: 20}
 
 
 # ---- inputs ------------------------------------------------------------------------------
@@ -435,7 +443,10 @@ def run_game(job):
     seqs = [processed_sequence(first_tgt[:, i], first_btn[:, i]) for i in range(2)]
     col = {int(p): i for i, p in enumerate(ports)}
 
+    off = COUNTDOWN if args["countdown"] else 0
+
     def values(frame, port):
+        frame += off                             # Slippi frame -> our frame number
         if frame < 0 or frame >= T:
             return None
         v = dict(seqs[col[int(port)]][frame])
@@ -449,16 +460,23 @@ def run_game(job):
     replanner = Replanner(args["m2"], perceived, stage) if args["replan"] else None
     stats = {"choices": {}, "gain": []}
     seeds = {}                                   # frame -> random seed chosen there (--seeds)
+    # where the search starts: the state after frame 1 (the engine hands over there), or with
+    # --countdown the state just before the first frame players can move (Slippi frame -40)
+    first_state = -1 if args["countdown"] else 1
+    first = first_state + 1                      # the first frame we play
     if args["start_seed"] >= 0:
-        # Don't borrow the original game's random numbers: force our own seed at frame 2, the
-        # first frame we play (frames up to 1 are played on load, during the countdown only).
-        # The recording stores it, so Slippi Playback uses it too.
-        seeds[2] = int(np.random.default_rng([args["start_seed"], 777]).integers(0, 2**32))
+        # Don't borrow the original game's random numbers: force our own seed at the first
+        # frame we play. The recording stores it, so Slippi Playback uses it too.
+        seeds[first] = int(np.random.default_rng([args["start_seed"], 777]).integers(0, 2**32))
     final_rows = {}                              # frame -> the exact override rows played
     track_cost = 0.0                             # cost vs the perceived states of the kept attempts
     restarts = max(1, args["restarts"])
     segment = args["segment"] if restarts > 1 else end
     threshold = args["restart_threshold"]
+
+    def open_engine():
+        """The engine on our starting file (--countdown: from the start of the countdown)."""
+        return Engine(base_slp, codes=CODES, preroll=args["countdown"], frame_offset=off)
 
     def attempt(a_start, a_stop, rng):
         """One attempt: replay the kept inputs up to a_start, then search frames a_start..a_stop.
@@ -468,11 +486,11 @@ def run_game(job):
         trial_cur = {key: v.copy() for key, v in cur.items()}
         trial_seeds, trial_rows = dict(seeds), {}
         sim_before = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
-        with Engine(base_slp, codes=CODES) as e:
+        with open_engine() as e:
             e.frame_seeds(False)
             st = fast_forward(e, final_rows, seeds, a_start, ports, None)
-            if a_start < 2 and 2 in seeds:       # --start-seed: before the first checkpoint, so
-                e.override_seed(2, seeds[2])     # every candidate of the first chunk uses it too
+            if a_start < first and first in seeds:     # --start-seed: before the first checkpoint, so
+                e.override_seed(first, seeds[first])   # every candidate of the first chunk uses it too
             st, a_cost = search_stretch(e, st, a_stop, ctx, trial_cur, trial_seeds, trial_rows, rng,
                                         replanner, stats)
             # judge the end state too: play on --lookahead frames with the model's inputs
@@ -493,7 +511,7 @@ def run_game(job):
 
     # What the previous segment started from, so it can be searched again (--backtrack).
     prev = None
-    seg_start, last_frame = 1, 1
+    seg_start, last_frame = first_state, first_state
     while seg_start < end:
         seg_stop = min(seg_start + segment, end)
         best = None
@@ -502,7 +520,7 @@ def run_game(job):
         # judged frame above --restart-threshold), up to --extra-restarts more (2026-10-30: a few
         # bad segments, where the rebuilt game drifts away, decide most of the lost score).
         while k < restarts or (best[0] / best[7] > threshold and k < restarts + args["extra_restarts"]):
-            trial = attempt(seg_start, seg_stop, np.random.default_rng([args["seed"], seg_start, k]))
+            trial = attempt(seg_start, seg_stop, np.random.default_rng([args["seed"], max(seg_start, 0), k]))
             if best is None or trial[0] < best[0]:
                 best = trial
             k += 1
@@ -530,7 +548,7 @@ def run_game(job):
             if replanner:
                 replanner.sim = p["sim"]
             for b in range(args["backtrack"]):
-                trial = attempt(p["start"], seg_stop, np.random.default_rng([args["seed"], p["start"], 1000 + b]))
+                trial = attempt(p["start"], seg_stop, np.random.default_rng([args["seed"], max(p["start"], 0), 1000 + b]))
                 if trial[0] < have[0]:
                     have = trial
                     backtracked = True
@@ -558,19 +576,34 @@ def run_game(job):
         seg_start = seg_stop
 
     # the output: replay all chosen inputs and seeds once more and record that game
-    with Engine(base_slp, codes=CODES) as e:
+    with open_engine() as e:
         e.frame_seeds(False)
         st = fast_forward(e, final_rows, seeds, last_frame, ports)
         data = e.record()
     out = f"{out_dir}/{sha[:12]}.slp"
     open(out, "wb").write(data)
     os.remove(base_slp)
-    return {"game": sha[:12], "seconds": round(time.time() - t_start, 1), "last_frame": int(st["match_frame"]),
+    return {"game": sha[:12], "seconds": round(time.time() - t_start, 1), "last_frame": int(st["match_frame"]) - off,
             "choices": json.dumps(stats["choices"]),
             "mean_gain": float(np.mean(stats["gain"])) if stats["gain"] else 0.0, "track_cost": track_cost,
             "attempts": stats.get("attempts", 0), "seg_cost": json.dumps(stats.get("seg_cost", [])),
             # [start of the earlier segment, cost per frame before, after, kept the new attempt?]
             "backtracks": json.dumps(stats.get("backtracks", []))}
+
+
+def choose_template(stage_id, characters, min_frames, index, splits):
+    """--from-video: a starting file that is NOT the game being rebuilt. A TRAINING-split replay
+    with the same stage and the same character on each port (ports 1 and 2, like every replay in
+    our library), long enough to hold the rebuilt game (the engine stops where the file ends).
+    Only its settings matter: its inputs are all replaced, its random numbers too (--start-seed),
+    and its stored states are never used. The lowest sha256 is taken, so the choice is repeatable."""
+    t = index[(index.stage_id == stage_id) & (index.character_ids == " ".join(str(c) for c in characters))
+              & (index.ports == "1 2") & (index.last_frame >= min_frames) & (index.eligible == True)
+              & index.version.str.startswith("3.19")]
+    t = t[t.sha256.isin(splits[splits.split == "train"].index)]
+    if t.empty:
+        raise SystemExit(f"no template replay for stage {stage_id}, characters {characters}")
+    return t.sort_values("sha256").iloc[0].path
 
 
 # ---- main --------------------------------------------------------------------------------
@@ -605,6 +638,14 @@ def main():
                          "one still fits poorly but the previous one looked fine (0 = off)")
     ap.add_argument("--pos-tail", type=float, default=0.0,
                     help="cost per unit of position error beyond 30 units (0 = flat cap, the old cost)")
+    ap.add_argument("--countdown", action="store_true",
+                    help="choose the inputs from Slippi frame -39 on (players can move during the last 39 "
+                         "countdown frames; without this those frames replay the starting file's inputs). "
+                         "Needs perception of those frames: m3_predict.py --countdown")
+    ap.add_argument("--from-video", action="store_true",
+                    help="stage from the video (scripts/m3_stage_id.py), characters from perception, and a "
+                         "training replay with the same stage/characters as the starting file (instead of "
+                         "the original game). The original is then only used for the scores.")
     ap.add_argument("--start-seed", type=int, default=-1,
                     help="our own random seed from frame 2 on, made from this number (-1 = the original "
                          "game's random numbers, a borrowed shortcut)")
@@ -621,6 +662,10 @@ def main():
                     help="truth: judge candidates against the TRUE states instead of perception's")
     ap.add_argument("--tag", required=True)
     args = ap.parse_args()
+    if args.from_video and not args.countdown:
+        raise SystemExit("--from-video needs --countdown (else frames -39..0 replay another game's inputs)")
+    if args.countdown and (args.oracle or args.true_inputs or args.target == "truth"):
+        raise SystemExit("--countdown is not supported with the diagnostic options")
     out_dir = f"{OUT}/{args.tag}"
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir)
@@ -632,7 +677,13 @@ def main():
     if args.max_games:
         games = games[:args.max_games]
     splits = pd.read_csv("data/index/splits.csv").set_index("sha256")
-    stage_ids = pd.read_csv("data/index/slp_index.csv").drop_duplicates("sha256").set_index("sha256").stage_id
+    index = pd.read_csv("data/index/slp_index.csv").drop_duplicates("sha256")
+    stage_ids = index.set_index("sha256").stage_id
+    if args.from_video:
+        # the stage as recognised in the video, as the game's stage number
+        name_to_id = dict(zip(index.stage, index.stage_id))
+        seen_stage = pd.read_csv(STAGE_PRED).set_index("sha256").stage
+        stage_ids = pd.Series({sha: name_to_id[seen_stage[sha]] for sha in games})
 
     # The input model's probabilities for every game (GPU, in this process).
     device = "cuda:0"
@@ -644,8 +695,17 @@ def main():
     jobs, tables = [], {}
     for sha in games:
         path = splits.loc[sha, "path"]
-        perceived = pd.read_parquet(f"data/m3/pred/{args.perception}/{sha}.parquet")
-        perceived = perceived[perceived.frame >= 0].sort_values(["frame", "port"])
+        if args.countdown:
+            # frames -39.. ; inside the search frame numbers are shifted by COUNTDOWN (0 = frame -39)
+            seen_table = pd.read_parquet(f"data/m3/pred/{args.perception}_countdown/{sha}.parquet")
+            perceived = seen_table[seen_table.frame >= -COUNTDOWN].copy()
+            perceived["frame"] += COUNTDOWN
+            perceived = perceived.sort_values(["frame", "port"])
+            seen_table = seen_table[seen_table.frame >= 0]     # for the scores (frames 0..end)
+        else:
+            perceived = pd.read_parquet(f"data/m3/pred/{args.perception}/{sha}.parquet")
+            perceived = perceived[perceived.frame >= 0].sort_values(["frame", "port"])
+            seen_table = perceived
         ports = sorted(int(p) for p in perceived.port.unique())
         num, cat = arrays_from_states(perceived, int(stage_ids[sha]), version)
         probs = predict_probs(model, num, cat, device, cfg["window"])
@@ -668,12 +728,19 @@ def main():
                 if not args.true_raw:
                     raw = fallback.astype(np.int64)
                 oracle = (true_tgt, true_btn, raw)
-        end = min(args.end, T - args.lookahead - 5)
+        off = COUNTDOWN if args.countdown else 0
+        end = min(args.end + off, T - args.lookahead - 5)       # in our frame numbers
+        template = path                  # default: the original game as the starting file
+        if args.from_video:
+            # characters as perception saw them (most common guess per port)
+            chars = [INTERNAL_TO_EXTERNAL[int(perceived[(perceived.port == p) & (perceived.seen > 0)]
+                                              .character.mode().iloc[0])] for p in ports]
+            template = choose_template(int(stage_ids[sha]), chars, end - off + args.lookahead + 300, index, splits)
         # only the frames needed (keeps the data sent to the worker processes small)
         keep = min(T, end + args.lookahead + 10)
         probs = {k: v[:keep] for k, v in probs.items()}
-        jobs.append((sha, path, probs, per, ports, end, vars(args), out_dir, oracle, perceived, int(stage_ids[sha])))
-        tables[sha] = perceived
+        jobs.append((sha, template, probs, per, ports, end, vars(args), out_dir, oracle, perceived, int(stage_ids[sha])))
+        tables[sha] = seen_table
     del model
     torch.cuda.empty_cache()
     print(f"{len(jobs)} games; M2 probabilities done; starting the engine search", flush=True)
@@ -682,8 +749,9 @@ def main():
         runs = list(pool.map(run_game, jobs))
 
     rows = []
-    for (sha, path, *_), run in zip(jobs, runs):
-        orig, _ = parse_replay(path)
+    for (sha, template, *_), run in zip(jobs, runs):
+        orig, _ = parse_replay(splits.loc[sha, "path"])      # the original game: for the scores only
+        run["template"] = template if args.from_video else ""
         regen, _ = parse_replay(f"{out_dir}/{sha[:12]}.slp")
         end = min(args.end, run["last_frame"])
         rows.append({**run, **replay_scores(orig, regen, tables[sha], end)})
