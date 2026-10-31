@@ -75,7 +75,9 @@ bash scripts/native_build.sh
 .venv/bin/python scripts/m4_airborne_table.py
 
 # the 12 test games, first minute, best settings so far (in tmux; ~1 hour on the fast engine)
-# measured 2026-10-30 over 3 seeds: action 0.911 / action+anim 0.820 / stocks 0.988
+# measured 2026-10-30 over 3 seeds (validation games): action 0.911 / action+anim 0.820 / stocks 0.988
+# HELD-OUT TEST (15 test-split games, data/m4/test_split_ucf084.txt, 2026-10-31):
+#   action 0.885 / action+anim 0.782 / stocks 0.995 (plain 3 restarts: 0.855 / 0.751 / 0.962)
 .venv/bin/python scripts/m4_closed_loop.py --game-list data/m4/test_games_ucf084.txt \
     --end 3600 --replan --lookahead 60 --restarts 3 --segment 300 \
     --extra-restarts 5 --restart-threshold 3.0 --backtrack 4 --start-seed 0 --verify 4 --tag my_run
