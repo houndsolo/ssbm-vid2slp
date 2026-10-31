@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from vid2slp.perception_data import CAT_FIELDS, REG_FIELDS, RENDERS
+from vid2slp.perception_data import CAT_FIELDS, REG_FIELDS, RENDERS, extend_countdown
 from vid2slp.perception_model import Perception
 
 WINDOW = 32      # frames the model sees at once (as in training)
@@ -129,15 +129,9 @@ def to_game_frames(sha, video_pred, first_frame=0):
     already move (from Slippi frame -39 on). The in-game timer doesn't run yet, so the timer
     can't place them; they are the video frames just before the first frame the timer places,
     counted backwards (Dolphin rarely skips a frame: 9 of ~4,700 in a typical game)."""
-    fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy")).copy()
+    fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy"))
     if first_frame < 0:
-        valid = fmap >= 0                    # (-1 in the file = no game frame for this video frame)
-        labelled = np.where(valid)[0]
-        v1, f1 = labelled[0], fmap[labelled[0]]
-        for v in range(v1 - 1, -1, -1):
-            if f1 - (v1 - v) < first_frame:
-                break
-            fmap[v], valid[v] = f1 - (v1 - v), True
+        fmap, valid = extend_countdown(fmap, first_frame)      # src/vid2slp/perception_data.py
         # shift so the table can start at 0 below (undone in the "frame" column at the end)
         fmap = np.where(valid, fmap - first_frame, -1)
     truth = pd.read_parquet(f"data/parsed/{sha}.parquet", columns=["frame", "port"])

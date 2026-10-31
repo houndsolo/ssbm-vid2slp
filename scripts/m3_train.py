@@ -56,6 +56,11 @@ def get_args():
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init", default="", help="start from this checkpoint's weights (fine-tuning), e.g. "
+                                                 "data/m3/runs/percep_v3/best.pt")
+    ap.add_argument("--countdown-share", type=float, default=0.0,
+                    help="also learn the countdown frames -39..-1 (players can move); this share of the "
+                         "training clips is taken around them")
     return ap.parse_args()
 
 
@@ -147,13 +152,16 @@ def main():
     train_shas, val_shas = rendered_games("train"), rendered_games("validation")
     say(f"games: {len(train_shas)} train, {len(val_shas)} validation")
     train_loader = torch.utils.data.DataLoader(
-        RandomClips(train_shas, args.clip, size, args.seed), batch_size=args.batch,
+        RandomClips(train_shas, args.clip, size, args.seed, args.countdown_share), batch_size=args.batch,
         num_workers=args.workers, pin_memory=True, persistent_workers=True, prefetch_factor=4)
     val_set = FixedClips(val_shas, args.clip, size, args.val_per_game)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch, num_workers=args.workers)
     say(f"validation clips: {len(val_set)}")
 
     model = Perception(size=size, max_len=args.clip).to(device)
+    if args.init and not args.resume:
+        model.load_state_dict(torch.load(args.init, map_location=device)["model"])
+        say(f"weights from {args.init}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scaler = torch.amp.GradScaler("cuda")
     step, best = 0, -1.0

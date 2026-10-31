@@ -42,19 +42,43 @@ BIN_FIELDS = ["facing", "airborne"]
 REG_FIELDS = {"x": POS_SCALE, "y": POS_SCALE, "percent": 100.0, "shield": 60.0}  # name -> divide by
 
 
-def game_labels(sha):
+COUNTDOWN_FIRST = -39   # players can move from this Slippi frame on (the last 39 countdown frames)
+
+
+def extend_countdown(fmap, first_frame=COUNTDOWN_FIRST):
+    """Give the countdown frames first_frame..-1 their video frames. The in-game timer doesn't run
+    during the countdown, so frame_map.npy can't place them (-1 there). They are the video frames
+    just before the first frame the timer places, counted backwards (Dolphin rarely skips a frame:
+    about 0.2 %; checked 2026-10-31: no better frame offset on 27 games).
+    Returns (game frame per video frame, valid mask): -1 is a real frame here, so use the mask."""
+    fmap = fmap.copy()
+    valid = fmap >= 0
+    labelled = np.where(valid)[0]
+    v1, f1 = labelled[0], fmap[labelled[0]]
+    for v in range(v1 - 1, -1, -1):
+        if f1 - (v1 - v) < first_frame:
+            break
+        fmap[v], valid[v] = f1 - (v1 - v), True
+    return fmap, valid
+
+
+def game_labels(sha, countdown=False):
     """Labels aligned to the video frames of one rendered game.
 
     Returns dict: name -> array [n_video_frames, 2] (slot 0 = lower port), plus
     "valid" [n_video_frames] (bool) and "game_frame" [n_video_frames].
+    countdown: also label the countdown frames from -39 on (extend_countdown).
     """
     fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy"))
+    valid = fmap >= 0
+    if countdown:
+        fmap, valid = extend_countdown(fmap)
     df = pd.read_parquet(f"data/parsed/{sha}.parquet")
     ports = sorted(df.port.unique())
     assert len(ports) == 2, f"{sha}: expected 2 players, got ports {ports}"
     first = int(df.frame.min())
     n_game = int(df.frame.max()) - first + 1
-    out = {"game_frame": fmap, "valid": fmap >= 0}
+    out = {"game_frame": fmap, "valid": valid}
     for name in list(CAT_FIELDS) + BIN_FIELDS + list(REG_FIELDS):
         table = np.zeros((n_game, 2), np.float32)
         for slot, port in enumerate(ports):
@@ -97,15 +121,17 @@ def read_clip(mp4, pts, start, length, size):
 class Game:
     """One rendered game: video path, timestamp table and labels."""
 
-    def __init__(self, sha):
+    def __init__(self, sha, countdown=False):
         self.sha = sha
         self.mp4 = os.path.join(RENDERS, sha, "video.mp4")
         self.pts = pts_table(self.mp4)
-        self.labels = game_labels(sha)
+        self.labels = game_labels(sha, countdown)
         n = len(self.labels["valid"])
         assert len(self.pts) == n, f"{sha}: {len(self.pts)} video frames but frame map has {n}"
         # clip starts where the clip has at least one labelled frame (skip the countdown)
         self.first_valid = int(np.argmax(self.labels["valid"]))
+        # the video frame of game frame 0 (countdown clips are taken just before it)
+        self.frame0 = int(np.argmax(self.labels["valid"] & (self.labels["game_frame"] >= 0)))
 
     def __len__(self):
         return len(self.pts)
@@ -132,8 +158,11 @@ def to_tensors(video, labels):
 class RandomClips(torch.utils.data.IterableDataset):
     """Endless stream of random clips from a list of games (for training)."""
 
-    def __init__(self, shas, length, size, seed=0):
+    def __init__(self, shas, length, size, seed=0, countdown_share=0.0):
+        """countdown_share > 0: label the countdown frames -39..-1 too, and take that share of the
+        clips around them (they are only ~1 % of a game's frames)."""
         self.shas, self.length, self.size, self.seed = shas, length, size, seed
+        self.countdown_share = countdown_share
 
     def __iter__(self):
         info = torch.utils.data.get_worker_info()
@@ -143,7 +172,12 @@ class RandomClips(torch.utils.data.IterableDataset):
         while True:
             sha = rng.choice(self.shas)
             if sha not in games:
-                games[sha] = Game(sha)   # each worker loads a game's labels the first time it is picked
+                # each worker loads a game's labels the first time it is picked
+                games[sha] = Game(sha, countdown=self.countdown_share > 0)
             g = games[sha]
-            start = rng.randint(g.first_valid, len(g) - self.length)
+            if rng.random() < self.countdown_share:
+                # a clip that contains countdown frames (anywhere from -39 to a clip after frame 0)
+                start = rng.randint(max(0, g.first_valid - self.length + 1), g.frame0)
+            else:
+                start = rng.randint(g.first_valid, len(g) - self.length)
             yield to_tensors(*g.clip(start, self.length, self.size))
