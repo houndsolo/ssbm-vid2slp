@@ -134,9 +134,14 @@ def to_game_frames(sha, video_pred, first_frame=0):
         fmap, valid = extend_countdown(fmap, first_frame)      # src/vid2slp/perception_data.py
         # shift so the table can start at 0 below (undone in the "frame" column at the end)
         fmap = np.where(valid, fmap - first_frame, -1)
-    truth = pd.read_parquet(f"data/parsed/{sha}.parquet", columns=["frame", "port"])
-    ports = sorted(truth.port.unique())
-    last = int(truth.frame.max())
+    # Nothing here comes from the replay file (a real video has none):
+    # - players: the first two port slots (0 and 1), like every game in our library (2 players)
+    # - last game frame: the last one the timer reading places in the video. The replay's own
+    #   last frame was used before 2026-10-31; it is 2-9 frames later (the timer stops moving
+    #   in the last frames), which makes no difference to the closed loop (it stops 65+ frames
+    #   before the end of the table).
+    ports = [0, 1]
+    last = int(fmap.max()) + first_frame
     n = last + 1 - first_frame
     # which video frame shows game frame f (first one if a frame were shown twice)
     video_of = np.full(n, -1)
