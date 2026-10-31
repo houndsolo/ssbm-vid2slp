@@ -1,6 +1,6 @@
 # Stage C: closed loop (the game engine in the loop)
 
-Written 2026-10-30. Numbers are in docs/experiments.md (rows of 2026-10-30).
+Written 2026-10-30, updated 2026-10-31. Numbers are in docs/experiments.md (rows of 2026-10-30).
 
 ## The problem it solves
 
@@ -39,15 +39,31 @@ while it chooses the inputs:
    engine's real states, so it plays back the same in Slippi Playback with or without resync
    (checked: every output tested so far replays identically).
 
-## Things it borrows from the original game (shortcuts still to remove)
+## Things it borrows from the original game
 
-- Stage, characters, costumes, ports and the game's starting random seed come from the original
-  replay used as a template. The video would have to provide these. The random numbers can
-  already be our own: `--start-seed N` forces a seed made from N at frame 2 (the first frame we
-  play; the recording stores it, checked in Slippi Playback). Measured 2026-10-31: no measurable
-  cost (0.915 action with our own seed vs 0.898-0.921 with the original's), so it is in the
-  recommended settings.
-- Frames 0 and 1 are played before the loop takes control (they use the model's inputs).
+With `--countdown --from-video` (2026-10-31) nothing but the port numbers (1 and 2, as in every
+replay of our library) comes from the original replay:
+
+- Stage: from the video (scripts/m3_stage_id.py, small thumbnails compared with training games;
+  164/164 held-out games right). Run `m3_stage_id.py --games <list>` before the closed loop.
+- Characters: from perception (the most common guess per port; right on all 27 Stage C games).
+- Starting file: an unrelated TRAINING-split replay with the same stage and characters, picked
+  automatically (`template` column in results.csv). Its inputs are all replaced, its random
+  numbers too (`--start-seed`), and its player names, connect codes and Slippi IDs are blanked
+  in the output. One-game check: same result as starting from the original file.
+- Random numbers: our own (`--start-seed N`, a seed made from N on the first frame we play;
+  the recording stores it). No measurable cost (0.915 action vs 0.898-0.921 with the original's).
+- Countdown: players can already move in the last 39 frames of the countdown (Slippi frames -39
+  to -1). Without `--countdown` the loop took control only at frame 1, so those frames silently
+  replayed the ORIGINAL game's real inputs (found 2026-10-31; all earlier scores include it).
+  `--countdown` hands control over at the start of the countdown and chooses those inputs too;
+  perception must then cover the countdown frames (`m3_predict.py --countdown`). Perception
+  `percep_v4cd` was fine-tuned for this: countdown frames 0.47 -> 0.90 action, normal frames
+  unchanged (0.96).
+
+Measured cost of removing the countdown shortcut (validation, one seed, percep_v3 whose countdown
+perception was weak): 0.868 action instead of 0.915. A run with percep_v4cd is in progress
+(docs/experiments.md has the latest numbers).
 
 Things it does NOT borrow: inputs (model only), states (engine's own), the per-frame random seeds
 (the engine's random numbers run on by themselves; `--seeds N` lets the loop choose seeds that
@@ -74,13 +90,19 @@ fit the video), and the game's code list (our fixed UCF 0.84 list, data/m4/ucf08
 bash scripts/native_build.sh
 .venv/bin/python scripts/m4_airborne_table.py
 
-# the 12 test games, first minute, best settings so far (in tmux; ~1 hour on the fast engine)
-# measured 2026-10-30 over 3 seeds (validation games): action 0.911 / action+anim 0.820 / stocks 0.988
-# HELD-OUT TEST (15 test-split games, data/m4/test_split_ucf084.txt, 2026-10-31):
-#   action 0.885 / action+anim 0.782 / stocks 0.995 (plain 3 restarts: 0.855 / 0.751 / 0.962)
+# once per batch of games: stage from the video, and perception including the countdown
+.venv/bin/python scripts/m3_stage_id.py --games data/m4/test_games_ucf084.txt
+.venv/bin/python scripts/m3_predict.py --run percep_v4cd --countdown --games data/m4/test_games_ucf084.txt
+
+# the 12 validation games, first minute, nothing borrowed but ports (in tmux; ~1-1.5 hours)
+# Earlier numbers WITH the borrowed countdown inputs (no --countdown --from-video):
+#   validation 3 seeds 0.911 action / 0.820 action+anim / 0.988 stocks;
+#   HELD-OUT TEST (15 test-split games, data/m4/test_split_ucf084.txt): 0.885 / 0.782 / 0.995
+#   (plain 3 restarts: 0.855 / 0.751 / 0.962)
 .venv/bin/python scripts/m4_closed_loop.py --game-list data/m4/test_games_ucf084.txt \
     --end 3600 --replan --lookahead 60 --restarts 3 --segment 300 \
-    --extra-restarts 5 --restart-threshold 3.0 --backtrack 4 --start-seed 0 --verify 4 --tag my_run
+    --extra-restarts 5 --restart-threshold 3.0 --backtrack 4 --start-seed 0 \
+    --countdown --from-video --perception percep_v4cd --verify 4 --tag my_run
 ```
 
 Output: data/m4/closed_loop/<tag>/ with one .slp per game, results.csv (scores against the

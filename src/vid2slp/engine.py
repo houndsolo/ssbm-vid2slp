@@ -98,6 +98,29 @@ def trim_to_complete_frames(data):
     return data[:i - 4] + struct.pack(">I", cut - i) + data[i:cut] + data[end:]
 
 
+def blank_player_info(data):
+    """Blank who played: the 4 players' display names, connect codes and Slippi user IDs, and
+    the online match ID, in the Game Start event (0x36) of .slp bytes. Returns new bytes.
+
+    Why: with --from-video the starting file is an unrelated training replay, and the engine's
+    recording copies its Game Start, so the output would name that game's players. These fields
+    do not change gameplay. Offsets are from the Slippi replay spec, counted from the 0x36 byte:
+    display names 0x1A5 (4 x 31 bytes), connect codes 0x221 (4 x 10), user IDs 0x249 (4 x 29),
+    match ID 0x2BE (51 bytes). Fields past the end of an older replay's Game Start are skipped.
+    """
+    i = data.find(b"raw[$U#l") + 12          # first byte of the raw event stream (0x35)
+    n = data[i + 1]
+    sizes = {data[i + 2 + 3 * k]: struct.unpack(">H", data[i + 3 + 3 * k:i + 5 + 3 * k])[0]
+             for k in range((n - 1) // 3)}
+    start = i + 1 + n                        # the Game Start event follows the payload sizes
+    assert data[start] == 0x36, "Game Start event not found"
+    out = bytearray(data)
+    for offset, length in [(0x1A5, 4 * 31), (0x221, 4 * 10), (0x249, 4 * 29), (0x2BE, 51)]:
+        if offset + length <= 1 + sizes[0x36]:
+            out[start + offset:start + offset + length] = bytes(length)
+    return bytes(out)
+
+
 class Engine:
     def __init__(self, slp, resync=False, log_file=None, boot_limit=6000, codes=None, preroll=False,
                  frame_offset=0):

@@ -54,7 +54,7 @@ import pandas as pd
 import torch
 
 from vid2slp.assemble import replay_scores
-from vid2slp.engine import Engine
+from vid2slp.engine import Engine, blank_player_info
 from vid2slp.id_data import BUTTONS, FEATURE_SETS, arrays_from_states, game_arrays, stick_from_raw
 from vid2slp.id_model import build_from_config, predict_probs
 from vid2slp.id_to_slp import processed_sequence
@@ -580,6 +580,9 @@ def run_game(job):
         e.frame_seeds(False)
         st = fast_forward(e, final_rows, seeds, last_frame, ports)
         data = e.record()
+    if args["from_video"]:
+        # the starting file is another game: don't let the output name its players
+        data = blank_player_info(data)
     out = f"{out_dir}/{sha[:12]}.slp"
     open(out, "wb").write(data)
     os.remove(base_slp)
