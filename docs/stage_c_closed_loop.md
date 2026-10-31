@@ -62,8 +62,9 @@ replay of our library) comes from the original replay:
   unchanged (0.96).
 
 Measured cost of removing the countdown shortcut (validation, one seed, percep_v3 whose countdown
-perception was weak): 0.868 action instead of 0.915. A run with percep_v4cd is in progress
-(docs/experiments.md has the latest numbers).
+perception was weak): 0.868 action instead of 0.915; with percep_v4cd 0.879. HELD-OUT TEST
+(15 games): 0.891 action / 0.788 action+anim / 0.998 stocks with percep_v4cd, vs 0.885 / 0.782 /
+0.995 with the borrowed countdown inputs, so no measurable cost there. One seed each.
 
 Things it does NOT borrow: inputs (model only), states (engine's own), the per-frame random seeds
 (the engine's random numbers run on by themselves; `--seeds N` lets the loop choose seeds that
@@ -95,6 +96,7 @@ bash scripts/native_build.sh
 .venv/bin/python scripts/m3_predict.py --run percep_v4cd --countdown --games data/m4/test_games_ucf084.txt
 
 # the 12 validation games, first minute, nothing borrowed but ports (in tmux; ~1-1.5 hours)
+# measured 2026-10-31, seed 0: validation 0.879 / 0.789 / 0.989; HELD-OUT TEST 0.891 / 0.788 / 0.998
 # Earlier numbers WITH the borrowed countdown inputs (no --countdown --from-video):
 #   validation 3 seeds 0.911 action / 0.820 action+anim / 0.988 stocks;
 #   HELD-OUT TEST (15 test-split games, data/m4/test_split_ucf084.txt): 0.885 / 0.782 / 0.995
