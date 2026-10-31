@@ -56,8 +56,9 @@ fit the video), and the game's code list (our fixed UCF 0.84 list, data/m4/ucf08
   always carry UCF 0.84), but test games must be UCF 0.84 for a fair check
   (data/m4/test_games_ucf084.txt).
 - Pokemon Stadium transformations are not implemented in the engine.
-- Speed: about 1 hour per minute of game for 12 games at once on this server (16 cores), with
-  the engine before 2026-10-30's speedup (the engine is now 1.8x faster, same results).
+- Speed: with the recommended settings about 48 minutes per minute of game (2,870 s), 12 games
+  at once on this server (16 cores), on the engine as sped up on 2026-10-30 (1.8x faster, same
+  results). A 300-frame segment attempt takes about a minute per game.
 - Run-to-run luck is large: the same settings with another random seed can move one game's
   action match by +-0.07 or more, mostly through a few segments where the rebuilt game drifts
   away from the video. Compare settings over several seeds before trusting a difference.
@@ -69,9 +70,11 @@ fit the video), and the game's code list (our fixed UCF 0.84 list, data/m4/ucf08
 bash scripts/native_build.sh
 .venv/bin/python scripts/m4_airborne_table.py
 
-# the 12 test games, first minute, best settings so far (in tmux; ~1-2 hours)
+# the 12 test games, first minute, best settings so far (in tmux; ~1 hour on the fast engine)
+# measured 2026-10-30 (cl_extra5_bt4_s0): action 0.921 / action+anim 0.827 / stocks 1.000
 .venv/bin/python scripts/m4_closed_loop.py --game-list data/m4/test_games_ucf084.txt \
-    --end 3600 --replan --lookahead 60 --restarts 3 --segment 300 --verify 4 --tag my_run
+    --end 3600 --replan --lookahead 60 --restarts 3 --segment 300 \
+    --extra-restarts 5 --restart-threshold 3.0 --backtrack 4 --verify 4 --tag my_run
 ```
 
 Output: data/m4/closed_loop/<tag>/ with one .slp per game, results.csv (scores against the
