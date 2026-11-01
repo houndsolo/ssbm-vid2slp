@@ -17,8 +17,12 @@ game frame >= -39, in data/m3/pred/<run>_countdown/), with the
 same column names as data/parsed/<sha256>.parquet (character, action, x, y, facing, percent,
 stocks, shield, airborne) plus "seen" (False = filled in, not on any video frame).
 
+Real footage (games cut by scripts/real_prepare.py into data/real/<id>/game<k>/): --real <id>
+predicts every game folder there; output data/real/<id>/pred_<run>[_countdown]/game<k>.parquet.
+
 Run:
     .venv/bin/python scripts/m3_predict.py --run percep_v3 --split validation
+    .venv/bin/python scripts/m3_predict.py --run percep_v4cd --countdown --real EAqS1j1oL2o
     .venv/bin/python scripts/m3_predict.py --run percep_v3 --split train      # ~2,240 games
 Games already done are skipped, so it can be restarted.
 """
@@ -51,14 +55,14 @@ class GameSegments(torch.utils.data.IterableDataset):
     so frames near a piece boundary still get windows with context on both sides.
     """
 
-    def __init__(self, shas, size):
-        self.shas, self.size = shas, size
+    def __init__(self, shas, size, root=RENDERS):
+        self.shas, self.size, self.root = shas, size, root
 
     def __iter__(self):
         info = torch.utils.data.get_worker_info()
         wid, nw = (info.id, info.num_workers) if info else (0, 1)
         for g in range(wid, len(self.shas), nw):          # each worker takes every nw-th game
-            container = av.open(os.path.join(RENDERS, self.shas[g], "video.mp4"))
+            container = av.open(os.path.join(self.root, self.shas[g], "video.mp4"))
             stream = container.streams.video[0]
             stream.thread_type = "AUTO"
             buf, base, k = [], 0, 0      # buf[i] is video frame base + i; k = piece number
@@ -122,14 +126,14 @@ def predict_video(model, frames, device):
     return out
 
 
-def to_game_frames(sha, video_pred, first_frame=0):
+def to_game_frames(sha, video_pred, first_frame=0, root=RENDERS):
     """Video-frame predictions -> table indexed by game frame first_frame..last (both ports).
 
     first_frame < 0 (--countdown): also the last frames of the countdown, where the players can
     already move (from Slippi frame -39 on). The in-game timer doesn't run yet, so the timer
     can't place them; they are the video frames just before the first frame the timer places,
     counted backwards (Dolphin rarely skips a frame: 9 of ~4,700 in a typical game)."""
-    fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy"))
+    fmap = np.load(os.path.join(root, sha, "frame_map.npy"))
     if first_frame < 0:
         fmap, valid = extend_countdown(fmap, first_frame)      # src/vid2slp/perception_data.py
         # shift so the table can start at 0 below (undone in the "frame" column at the end)
@@ -180,16 +184,24 @@ def main():
     ap.add_argument("--countdown", action="store_true",
                     help="also predict countdown frames -39..-1 (players can move); output in "
                          "data/m3/pred/<run>_countdown/")
+    ap.add_argument("--real", default="", help="real-footage folder name under data/real/ (instead of renders)")
     args = ap.parse_args()
 
     cfg = json.load(open(f"data/m3/runs/{args.run}/config.json"))
     size = (cfg["width"], cfg["height"])
     out_dir = f"data/m3/pred/{args.run}" + ("_countdown" if args.countdown else "")
+    root = RENDERS
+    if args.real:
+        root = f"data/real/{args.real}"
+        out_dir = f"{root}/pred_{args.run}" + ("_countdown" if args.countdown else "")
     first_frame = -39 if args.countdown else 0
     os.makedirs(out_dir, exist_ok=True)
 
     # Games: rendered, labelled, not desynced, in the wanted split.
-    if args.games:
+    if args.real:
+        # every game folder, in order (game1, game2, ...)
+        shas = sorted((g for g in os.listdir(root) if g.startswith("game") and g[4:].isdigit()), key=lambda g: int(g[4:]))
+    elif args.games:
         shas = open(args.games).read().split()
     else:
         splits = pd.read_csv("data/index/splits.csv")
@@ -214,7 +226,7 @@ def main():
     model.load_state_dict(torch.load(f"data/m3/runs/{args.run}/best.pt", map_location=device)["model"])
     model.eval()
 
-    loader = torch.utils.data.DataLoader(GameSegments(shas, size), batch_size=None,
+    loader = torch.utils.data.DataLoader(GameSegments(shas, size, root), batch_size=None,
                                          num_workers=args.workers, prefetch_factor=4)
     parts = {}             # game index -> list of (keep_from, predictions) received so far
     t0, done, frames_done = time.time(), 0, 0
@@ -229,9 +241,9 @@ def main():
         video_pred = {k: np.concatenate([p[1][k] for p in pieces]) for k in pieces[0][1]}
         sha = shas[g]
         try:
-            n_video = len(np.load(os.path.join(RENDERS, sha, "frame_map.npy")))
+            n_video = len(np.load(os.path.join(root, sha, "frame_map.npy")))
             assert len(video_pred["action"]) == n_video, f"{len(video_pred['action'])} predictions, {n_video} video frames"
-            table = to_game_frames(sha, video_pred, first_frame)
+            table = to_game_frames(sha, video_pred, first_frame, root)
             table.to_parquet(f"{out_dir}/{sha}.parquet.tmp", index=False)
             os.replace(f"{out_dir}/{sha}.parquet.tmp", f"{out_dir}/{sha}.parquet")
         except Exception as e:                                   # one bad game must not stop the run
