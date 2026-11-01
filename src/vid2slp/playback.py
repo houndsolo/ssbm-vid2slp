@@ -43,7 +43,7 @@ GFX_DUMP = "DumpCodec = {codec}\nDumpFormat = {fmt}\nBitrateKbps = {kbps}\nInter
 
 
 def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_speed=True, resync=False,
-               stall_seconds=60, dump_video=None, dual_core=False, gpu=None):
+               stall_seconds=60, dump_video=None, dual_core=False, gpu=None, widescreen=False):
     """Play `slp_path` from frame `start` to `end` and return (regenerated .slp path, seconds taken).
 
     out_dir must not exist yet; it receives the Dolphin user folder, logs and the result.
@@ -55,6 +55,9 @@ def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_s
     gpu: None = draw with software OpenGL on the CPU. Or an NVIDIA GPU number as nvidia-smi
         shows it (0 = GT 1030, 1 = V100) to draw with Vulkan on that GPU. Needs the host
         package libnvidia-gl-580-server (scripts/install_gpu_graphics.sh).
+    widescreen: turn on Slippi's "Widescreen 16:9" Gecko code and Dolphin's "Force 16:9" aspect
+        ratio, like many tournament streams (the game shows more of the stage left and right;
+        the HUD stays 4:3 in the middle). Added 2026-11-01 to measure perception on it.
     """
     slp_path = os.path.abspath(slp_path)
     out_dir = os.path.abspath(out_dir)
@@ -62,13 +65,21 @@ def regenerate(slp_path, out_dir, start=-123, end=None, timeout=900, unlimited_s
     os.makedirs(os.path.join(out_dir, "user", "GameSettings"))
     os.makedirs(os.path.join(out_dir, "regenerated"))
     os.makedirs(os.path.join(out_dir, "home"))
-    open(os.path.join(out_dir, "user", "GameSettings", "GALE01r2.ini"), "w").write(GECKO)
+    gecko = GECKO + ("$Optional: Widescreen 16:9\n" if widescreen else "")
+    open(os.path.join(out_dir, "user", "GameSettings", "GALE01r2.ini"), "w").write(gecko)
     speed = "EmulationSpeed = 0.0\n" if unlimited_speed else ""
     movie = MOVIE_DUMP if dump_video else ""
     dump = GFX_DUMP.format(**dump_video) if dump_video else ""
     open(os.path.join(out_dir, "user", "Config", "Dolphin.ini"), "w").write(DOLPHIN_INI.format(speed=speed, movie=movie, dual=dual_core,
                                                                  backend="OGL" if gpu is None else "Vulkan"))
-    open(os.path.join(out_dir, "user", "Config", "GFX.ini"), "w").write(GFX_INI.format(dump=dump))
+    gfx = GFX_INI.format(dump=dump)
+    if widescreen:
+        # 1 = Force 16:9. And draw at 2x and dump at that size: the 16:9 dump at native size is
+        # only 640 x 360 (the 4:3 middle 480 x 360, smaller than our 584 x 480 renders); a real
+        # stream is captured at a high resolution and then shrunk, like this.
+        gfx = gfx.replace("InternalResolutionFrameDumps = False", "InternalResolutionFrameDumps = True")
+        gfx += "AspectRatio = 1\nInternalResolution = 2\n"
+    open(os.path.join(out_dir, "user", "Config", "GFX.ini"), "w").write(gfx)
     if end is None:
         import peppi_py
         end = peppi_py.read_slippi(slp_path, skip_frames=True).metadata["lastFrame"]

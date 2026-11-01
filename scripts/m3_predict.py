@@ -86,6 +86,9 @@ def _stack(frames):
     return torch.from_numpy(np.stack(frames)).permute(0, 3, 1, 2)   # [n, 3, H, W]
 
 
+BATCH_WINDOWS = 16    # windows per GPU batch (--batch-windows; fewer = less GPU memory)
+
+
 def predict_video(model, frames, device):
     """frames uint8 [N, 3, H, W] (consecutive video frames) -> per-frame predictions (numpy dict)."""
     n = len(frames)
@@ -101,8 +104,8 @@ def predict_video(model, frames, device):
     out["action_prob"] = np.zeros((n, 2), np.float32)  # model's confidence in its action guess
     filled_to = 0
     with torch.no_grad():
-        for b in range(0, len(starts), 16):           # 16 windows per GPU batch
-            chunk = starts[b:b + 16]
+        for b in range(0, len(starts), BATCH_WINDOWS):
+            chunk = starts[b:b + BATCH_WINDOWS]
             video = torch.stack([frames[s:s + WINDOW] for s in chunk]).to(device, non_blocking=True)
             with torch.autocast("cuda", dtype=torch.float16):
                 pred = model(video)
@@ -184,8 +187,12 @@ def main():
     ap.add_argument("--countdown", action="store_true",
                     help="also predict countdown frames -39..-1 (players can move); output in "
                          "data/m3/pred/<run>_countdown/")
+    ap.add_argument("--batch-windows", type=int, default=16,
+                    help="32-frame windows per GPU batch; lower it when the GPU is short of memory")
     ap.add_argument("--real", default="", help="real-footage folder name under data/real/ (instead of renders)")
     args = ap.parse_args()
+    global BATCH_WINDOWS
+    BATCH_WINDOWS = args.batch_windows
 
     cfg = json.load(open(f"data/m3/runs/{args.run}/config.json"))
     size = (cfg["width"], cfg["height"])

@@ -28,6 +28,12 @@ frozen split as everything else), so test games stay unseen.
 Only Fox-Fox and Fox-Falco games by default (project scope since 2026-10-27; src/vid2slp/matchups.py).
 --count is the number of NEW games: games already rendered (or failed) are left out of the pick.
 
+--widescreen (added 2026-11-01): render with Slippi's "Widescreen 16:9" code like many streams,
+at 2x size (1878 x 1056), then keep the game's 4:3 middle (the area the HUD lines up with
+our normal renders, fitted by scripts/real_prepare.py: x 297, y 10, 1285 x 977; the same on all
+6 test renders) shrunk to 584 x 480 -> data/m3/renders_ws/<sha256>/. Why: perception trained on
+normal renders fails on widescreen ones (characters 68 %, stocks 52 %, scripts/m3_widescreen_test.py).
+
 Run (inside tmux; on the V100 = nvidia-smi GPU 1, 6 in parallel is the measured sweet spot):
     .venv/bin/python scripts/m3_render.py --split train --count 600 --parallel 6 --gpu 1
     add --gpu 0 to draw on the GT 1030 (much faster; same pictures, checked 2026-10-27)
@@ -75,8 +81,12 @@ def timer_crops_from_video(avi):
     return np.stack(crops)
 
 
+WS_DUMP = (1878, 1056)               # widescreen dump size at 2x
+WS_CROP = (297, 10, 1285, 977)       # x, y, w, h of the 4:3 middle in it (fitted)
+
+
 def render_one(job):
-    sha, slp, last_frame, start_seconds, gpu, encoder = job
+    sha, slp, last_frame, start_seconds, gpu, encoder, widescreen = job
     out = os.path.join(OUT, sha)
     if os.path.exists(os.path.join(out, "info.json")):
         return sha, "skipped"
@@ -86,8 +96,19 @@ def render_one(job):
     t0 = time.time()
     try:
         regenerate(slp, work, end=last_frame, timeout=3600, stall_seconds=30, gpu=gpu,
-                   dump_video={"codec": "ffv1", "fmt": "avi", "kbps": 25000})
+                   dump_video={"codec": "ffv1", "fmt": "avi", "kbps": 25000}, widescreen=widescreen)
         avi = os.path.join(work, "user", "Dump", "Frames", "framedump0.avi")
+        if widescreen:
+            # keep the 4:3 middle, shrunk to 584 x 480, still lossless (FFV1)
+            size = av.open(avi).streams.video[0]
+            if (size.width, size.height) != WS_DUMP:
+                raise RuntimeError(f"widescreen dump is {size.width}x{size.height}, expected {WS_DUMP}")
+            x, y, w, h = WS_CROP
+            small = os.path.join(work, "small.avi")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", avi, "-vf",
+                            f"crop={w}:{h}:{x}:{y},scale=584:480:flags=area", "-c:v", "ffv1", small], check=True)
+            os.remove(avi)
+            avi = small
         t_render = time.time() - t0
         crops = timer_crops_from_video(avi)
         np.savez_compressed(os.path.join(out, "timer_crops.npz"), crops=crops)
@@ -114,6 +135,7 @@ def render_one(job):
         "strictly_increasing": increasing,
         "render_seconds": round(t_render, 1), "total_seconds": round(time.time() - t0, 1),
         "mp4_bytes": os.path.getsize(os.path.join(out, "video.mp4")), "encoder": encoder,
+        "widescreen": bool(widescreen), **({"widescreen_crop_xywh": list(WS_CROP)} if widescreen else {}),
         **({"crf": CRF} if encoder == "x264" else {"nvenc_cq": NVENC_CQ}),
     }
     json.dump(info, open(os.path.join(out, "info.json"), "w"), indent=1)
@@ -134,7 +156,11 @@ def main():
                     help="draw on this NVIDIA GPU (nvidia-smi number; 0 = GT 1030) instead of the CPU")
     ap.add_argument("--encoder", default="nvenc", choices=list(ENCODE),
                     help="how to compress the video: nvenc (V100, default) or x264 (CPU)")
+    ap.add_argument("--widescreen", action="store_true", help="16:9 widescreen renders -> data/m3/renders_ws/")
     args = ap.parse_args()
+    global OUT
+    if args.widescreen:
+        OUT = "data/m3/renders_ws"
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
 
@@ -154,10 +180,10 @@ def main():
     jobs = []
     for row in games.itertuples():
         start_seconds = peppi_py.read_slippi(row.path, skip_frames=True).start.timer
-        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder))
+        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder, args.widescreen))
     # record which games were chosen (with the seed) so the selection is reproducible
     pd.DataFrame([j[:4] for j in jobs], columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
-        f"data/m3/selection_{args.split}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
+        f"data/m3/selection_{args.split}{'_ws' if args.widescreen else ''}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
     print(f"{args.split}: rendering {len(jobs)} games with {args.parallel} in parallel", flush=True)
     t0 = time.time()
     with Pool(args.parallel) as pool:
