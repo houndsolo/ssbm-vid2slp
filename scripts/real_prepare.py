@@ -190,11 +190,53 @@ def fit_crop(frames, guess):
     return tuple(int(round(v)) for v in crop), round(best[0], 3)
 
 
+def refine_crop_by_reading(frames, crop, net, device):
+    """Final touch to the crop: shift it by fractions of a pixel until the timer reads best.
+    Why: the digit reader looks at fixed digit positions and is very sensitive. On Genesis 7
+    (nPEj_2fzpAI) only 35 % of in-game frames read validly with the fitted crop, but 100 % with
+    the picture moved by one pixel left and up (2026-11-01). The damage display is read the
+    same fixed way, so perception gains from the same alignment.
+    Score of a shift = share of the sampled frames whose reading is a valid timer value.
+    Shifts are in pixels of the 584 x 480 picture: whole pixels -2..2 first, then half pixels
+    around the best. Returns (crop, share of valid readings)."""
+    lookup = hud_timer.timer_lookup(MAX_FRAME, START_SECONDS)
+    x, y, w, h = crop
+    sx, sy = w / 584, h / 480                          # video pixels per output pixel
+
+    def score(dx, dy):
+        x0, y0 = x + dx * sx, y + dy * sy
+        crops = np.stack([hud_timer.timer_crop(np.asarray(Image.fromarray(f).resize(
+            (584, 480), Image.BILINEAR, box=(x0, y0, x0 + w, y0 + h)))).copy() for f in frames])
+        reads = hud_timer.read_timers_net(crops, net, device, min_prob=0.5)
+        return float(np.mean([r is not None and r in lookup for r in reads]))
+
+    best = (score(0, 0), 0.0, 0.0)
+    print(f"  timer readable on {best[0]:.0%} of sampled frames before the shift search", flush=True)
+    for dy in range(-2, 3):
+        for dx in range(-2, 3):
+            v = score(dx, dy)
+            if v > best[0] + 0.005:                     # only move for a real gain
+                best = (v, float(dx), float(dy))
+    _, bx, by = best
+    for dy in (by - 0.5, by, by + 0.5):
+        for dx in (bx - 0.5, bx, bx + 0.5):
+            if (dx, dy) != (bx, by):
+                v = score(dx, dy)
+                if v > best[0] + 0.005:
+                    best = (v, dx, dy)
+    v, dx, dy = best
+    print(f"  best shift {dx:+.1f}, {dy:+.1f} px: timer readable on {v:.0%}", flush=True)
+    return (int(round(x + dx * sx)), int(round(y + dy * sy)), w, h), round(v, 3)
+
+
 def shrink(source, out, crop):
     """crop (x, y, w, h) of the source video -> 584 x 480, 60 fps, near-lossless H.264 (CRF 12)."""
     x, y, w, h = crop
     # pad first, in case the fitted crop reaches a little past the picture's edge
-    vf = f"pad=iw+64:ih+64:32:32,crop={w}:{h}:{x + 32}:{y + 32},scale=584:480:flags=area"
+    # crop's exact=1: without it ffmpeg rounds x and y DOWN TO EVEN numbers for yuv420p video,
+    # shifting the picture by up to one source pixel. That was enough to break the timer reader
+    # on Genesis 7 (nPEj_2fzpAI: 35 % valid readings vs 100 % when aligned), 2026-11-01.
+    vf = f"pad=iw+64:ih+64:32:32,crop={w}:{h}:{x + 32}:{y + 32}:exact=1,scale=584:480:flags=area"
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", source, "-vf", vf, "-an",
                     "-c:v", "libx264", "-preset", "fast", "-crf", "12", "-pix_fmt", "yuv420p", out],
                    check=True)
@@ -291,12 +333,14 @@ def prepare(video_id, url="", crop_arg="", net=None, device="cpu"):
         # (Widescreen games and 4:3 games shown in a 16:9 stream both have their HUD there.)
         guess = (round((W - H * 4 / 3) / 2), 0, round(H * 4 / 3), H) if W / H > 1.4 else (0, 0, W, H)
         if crop_arg:
-            crop, fit = tuple(int(v) for v in crop_arg.split(",")), None
+            crop, fit, readable = tuple(int(v) for v in crop_arg.split(",")), None, None
         else:
             print(f"fitting the game area (first guess {guess}) ...", flush=True)
-            crop, fit = fit_crop(sample_frames(f"{d}/source.mp4"), guess)
+            frames = sample_frames(f"{d}/source.mp4")
+            crop, fit = fit_crop(frames, guess)
+            crop, readable = refine_crop_by_reading(frames, crop, net, device)
         print(f"game area in the video: x {crop[0]}, y {crop[1]}, {crop[2]} x {crop[3]} (fit {fit})", flush=True)
-        json.dump({"crop_xywh": crop, "fit_correlation": fit, "guess": guess},
+        json.dump({"crop_xywh": crop, "fit_correlation": fit, "timer_readable": readable, "guess": guess},
                   open(f"{d}/crop.json", "w"), indent=1)
         print("shrinking to 584 x 480 ...", flush=True)
         shrink(f"{d}/source.mp4", f"{d}/full_584.mp4", crop)

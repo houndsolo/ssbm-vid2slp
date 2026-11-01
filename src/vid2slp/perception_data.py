@@ -258,11 +258,48 @@ def paste_overlay(video, rng):
     return (video.astype(np.float32) * (1 - a) + img[None] * a).astype(np.uint8)
 
 
+def soften(video, factor):
+    """Make a clip blurrier like a soft stream capture: shrink each frame by `factor` (0..1) and
+    blow it back up. Why: our renders are sharp; Genesis 7 console footage is about half as
+    sharp, and on validation clips softened by 0.5 percep_v5pt fell from 0.94 to 0.72 action
+    accuracy and 2.1 to 5.0 damage error (scripts/m3_eval_clips.py --soften, 2026-11-01)."""
+    import cv2
+    h, w = video.shape[1:3]
+    small = (max(1, int(w * factor)), max(1, int(h * factor)))
+    return np.stack([cv2.resize(cv2.resize(f, small, interpolation=cv2.INTER_AREA), (w, h),
+                                interpolation=cv2.INTER_LINEAR) for f in video])
+
+
+class SoftenedClips(torch.utils.data.Dataset):
+    """A clip dataset (to_tensors items) with every clip softened by a fixed factor: for
+    validating on soft footage with known labels."""
+
+    def __init__(self, clips, factor):
+        self.clips, self.factor = clips, factor
+
+    def __len__(self):
+        return len(self.clips)
+
+    def __getitem__(self, i):
+        item = self.clips[i]
+        video = soften(item["video"].permute(0, 2, 3, 1).numpy(), self.factor)   # [T, H, W, 3]
+        item["video"] = torch.from_numpy(video).permute(0, 3, 1, 2).contiguous()
+        return item
+
+
+def colour_jitter(video, rng):
+    """Random per-channel gain (0.85-1.15) and brightness shift (-15..15) for the whole clip:
+    capture cards, TVs and stream encoders all shift colours a little."""
+    gain = np.array([rng.uniform(0.85, 1.15) for _ in range(3)], np.float32)
+    shift = rng.uniform(-15, 15)
+    return np.clip(video.astype(np.float32) * gain + shift, 0, 255).astype(np.uint8)
+
+
 class RandomClips(torch.utils.data.IterableDataset):
     """Endless stream of random clips from a list of games (for training)."""
 
     def __init__(self, shas, length, size, seed=0, countdown_share=0.0, ws_shas=(), ws_share=0.0,
-                 overlay_share=0.0):
+                 overlay_share=0.0, soften_share=0.0, colour_share=0.0):
         """countdown_share > 0: label the countdown frames -39..-1 too, and take that share of the
         clips around them (they are only ~1 % of a game's frames).
         ws_shas / ws_share: widescreen games ("ws:<sha256>") and the share of clips taken from them.
@@ -270,6 +307,9 @@ class RandomClips(torch.utils.data.IterableDataset):
         self.shas, self.length, self.size, self.seed = shas, length, size, seed
         self.countdown_share = countdown_share
         self.ws_shas, self.ws_share, self.overlay_share = list(ws_shas), ws_share, overlay_share
+        # soften_share: share of clips made blurrier (soften, factor 0.35-0.9);
+        # colour_share: share of clips with shifted colours (colour_jitter)
+        self.soften_share, self.colour_share = soften_share, colour_share
 
     def __iter__(self):
         info = torch.utils.data.get_worker_info()
@@ -294,4 +334,8 @@ class RandomClips(torch.utils.data.IterableDataset):
             video, labels = g.clip(start, self.length, self.size)
             if rng.random() < self.overlay_share:
                 video = paste_overlay(video, rng)
+            if rng.random() < self.soften_share:
+                video = soften(video, rng.uniform(0.35, 0.9))
+            if rng.random() < self.colour_share:
+                video = colour_jitter(video, rng)
             yield to_tensors(video, labels)
