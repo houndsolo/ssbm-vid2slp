@@ -34,8 +34,8 @@ import torch
 
 from vid2slp.id_model import lr_at
 from vid2slp.matchups import wanted_games
-from vid2slp.perception_data import (BIN_FIELDS, CAT_FIELDS, REG_FIELDS, VARIANTS, Game, RandomClips,
-                                     SoftenedClips, to_tensors)
+from vid2slp.perception_data import (BIN_FIELDS, CAT_FIELDS, REG_FIELDS, VARIANTS, Game, LevelledClips,
+                                     RandomClips, SoftenedClips, to_tensors)
 from vid2slp.perception_model import Perception, loss_fn
 
 OUT = "data/m3/runs"
@@ -75,6 +75,11 @@ def get_args():
                     help="share of training clips made blurrier (perception_data.soften, factor 0.35-0.9)")
     ap.add_argument("--colour-share", type=float, default=0.0,
                     help="share of training clips with shifted colours (perception_data.colour_jitter)")
+    ap.add_argument("--levels-share", type=float, default=0.0,
+                    help="share of training clips with a squashed brightness range, gamma and saturation "
+                         "(perception_data.random_levels; console captures with TV levels)")
+    ap.add_argument("--val-levels", action="store_true",
+                    help="also validate on the normal clips at Genesis 7's TV levels (black 10, white 232), shown as TV")
     ap.add_argument("--val-soften", type=float, default=0.0,
                     help="also validate on the normal clips softened by this factor (e.g. 0.5), shown as SOFT")
     ap.add_argument("--overlay-share", type=float, default=0.0,
@@ -187,7 +192,7 @@ def main():
     train_loader = torch.utils.data.DataLoader(
         RandomClips(train_shas, args.clip, size, args.seed, args.countdown_share,
                     ws_train if args.ws_share > 0 else (), args.ws_share, args.overlay_share,
-                    args.soften_share, args.colour_share), batch_size=args.batch,
+                    args.soften_share, args.colour_share, args.levels_share), batch_size=args.batch,
         num_workers=args.workers, pin_memory=True, persistent_workers=True, prefetch_factor=4)
     val_set = FixedClips(val_shas, args.clip, size, args.val_per_game)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch, num_workers=args.workers)
@@ -196,12 +201,16 @@ def main():
     for prefix, va in extra_val.items():
         vs = FixedClips(va, args.clip, size, args.val_per_game)
         extra_loaders[prefix] = torch.utils.data.DataLoader(vs, batch_size=args.batch, num_workers=args.workers)
+        say(f"validation clips '{prefix}': {len(vs)}")
     if args.val_soften > 0:
         # the normal validation clips, softened like a blurry console capture (counts in the
         # best-checkpoint score like the other extra kinds)
         extra_loaders["soft"] = torch.utils.data.DataLoader(SoftenedClips(val_set, args.val_soften),
                                                             batch_size=args.batch, num_workers=args.workers)
-        say(f"validation clips '{prefix}': {len(vs)}")
+    if args.val_levels:
+        # the normal validation clips at TV levels like Genesis 7 (also counts in the best score)
+        extra_loaders["tv"] = torch.utils.data.DataLoader(LevelledClips(val_set),
+                                                          batch_size=args.batch, num_workers=args.workers)
 
     model = Perception(size=size, max_len=args.clip).to(device)
     if args.init and not args.resume:

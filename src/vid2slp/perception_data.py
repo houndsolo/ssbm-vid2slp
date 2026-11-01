@@ -296,11 +296,49 @@ def colour_jitter(video, rng):
     return np.clip(video.astype(np.float32) * gain + shift, 0, 255).astype(np.uint8)
 
 
+def levels(video, black, white, gamma=1.0, saturation=1.0):
+    """Squash a clip's brightness range to black..white (0..255 -> black..white), with a gamma
+    curve and a saturation change. Why: console captures often keep TV levels: on Genesis 7 the
+    always-white timer reaches only ~232-235 and black ~10, while our renders use 0..255. Melee's
+    damage digits darken and redden as damage rises, so perception read greyer digits as more
+    damage (hand-read check 2026-11-01: +7.8 too high on average; stretching that video's levels
+    back to 0..255 cut the error from 8.2 to 5.2)."""
+    x = video.astype(np.float32) / 255.0
+    if saturation != 1.0:
+        grey = x.mean(axis=-1, keepdims=True)
+        x = np.clip(grey + (x - grey) * saturation, 0, 1)
+    if gamma != 1.0:
+        x = x ** gamma
+    return np.clip(black + x * (white - black), 0, 255).astype(np.uint8)
+
+
+def random_levels(video, rng):
+    """levels() with random settings: black 0-30, white 200-255, gamma 0.8-1.25, saturation 0.6-1.3."""
+    return levels(video, rng.uniform(0, 30), rng.uniform(200, 255), rng.uniform(0.8, 1.25), rng.uniform(0.6, 1.3))
+
+
+class LevelledClips(torch.utils.data.Dataset):
+    """A clip dataset (to_tensors items) with every clip given fixed levels, by default the
+    Genesis 7 set 2 measurement (black 10, white 232): validating on TV-level footage with known labels."""
+
+    def __init__(self, clips, black=10, white=232):
+        self.clips, self.black, self.white = clips, black, white
+
+    def __len__(self):
+        return len(self.clips)
+
+    def __getitem__(self, i):
+        item = self.clips[i]
+        video = levels(item["video"].permute(0, 2, 3, 1).numpy(), self.black, self.white)   # [T, H, W, 3]
+        item["video"] = torch.from_numpy(video).permute(0, 3, 1, 2).contiguous()
+        return item
+
+
 class RandomClips(torch.utils.data.IterableDataset):
     """Endless stream of random clips from a list of games (for training)."""
 
     def __init__(self, shas, length, size, seed=0, countdown_share=0.0, ws_shas=(), ws_share=0.0,
-                 overlay_share=0.0, soften_share=0.0, colour_share=0.0):
+                 overlay_share=0.0, soften_share=0.0, colour_share=0.0, levels_share=0.0):
         """countdown_share > 0: label the countdown frames -39..-1 too, and take that share of the
         clips around them (they are only ~1 % of a game's frames).
         ws_shas / ws_share: widescreen games ("ws:<sha256>") and the share of clips taken from them.
@@ -311,6 +349,8 @@ class RandomClips(torch.utils.data.IterableDataset):
         # soften_share: share of clips made blurrier (soften, factor 0.35-0.9);
         # colour_share: share of clips with shifted colours (colour_jitter)
         self.soften_share, self.colour_share = soften_share, colour_share
+        # levels_share: share of clips with squashed brightness range, gamma, saturation (random_levels)
+        self.levels_share = levels_share
 
     def __iter__(self):
         info = torch.utils.data.get_worker_info()
@@ -339,4 +379,6 @@ class RandomClips(torch.utils.data.IterableDataset):
                 video = soften(video, rng.uniform(0.35, 0.9))
             if rng.random() < self.colour_share:
                 video = colour_jitter(video, rng)
+            if rng.random() < self.levels_share:
+                video = random_levels(video, rng)
             yield to_tensors(video, labels)

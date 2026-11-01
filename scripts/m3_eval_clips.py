@@ -16,7 +16,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m3_train import FixedClips, evaluate, rendered_games    # noqa: E402  (scripts/m3_train.py)
-from vid2slp.perception_data import SoftenedClips            # noqa: E402
+from vid2slp.perception_data import LevelledClips, SoftenedClips           # noqa: E402
 from vid2slp.perception_model import Perception             # noqa: E402
 
 
@@ -28,6 +28,8 @@ def main():
     ap.add_argument("--paired", action="store_true",
                     help="for each extra kind, also score the NORMAL renders of the same games (normal@<kind>), "
                          "so the two can be compared game for game")
+    ap.add_argument("--levels", action="store_true",
+                    help="also score the normal clips at Genesis 7's TV levels, black 10 white 232 (perception_data.LevelledClips)")
     ap.add_argument("--batch", type=int, default=2)        # small: the GPU is shared
     ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args()
@@ -42,6 +44,8 @@ def main():
     datasets = {name: FixedClips(shas, clip, size, per_game) for name, shas in sets.items()}
     for f in filter(None, args.soften.split(",")):
         datasets[f"soft{f}"] = SoftenedClips(datasets["normal"], float(f))
+    if args.levels:
+        datasets["tv"] = LevelledClips(datasets["normal"])
     loaders = {name: torch.utils.data.DataLoader(ds, batch_size=args.batch, num_workers=args.workers)
                for name, ds in datasets.items()}
     device = "cuda"
