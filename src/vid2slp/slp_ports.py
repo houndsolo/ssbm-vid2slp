@@ -80,3 +80,28 @@ def move_ports(data, new_ports):
                     out[pos + 3 + mapping[k]] = old[k]
         pos += 1 + size
     return bytes(out)
+
+
+# Game Start arrays that hold the netplay name shown under each player's damage in playback:
+# display names (0x1A5, 31 bytes per port) and connect codes (0x221, 10 bytes per port).
+NAME_ARRAYS = [(0x1A5, 0x1F), (0x221, 0xA)]
+
+
+def blank_names(data):
+    """.slp bytes -> .slp bytes without netplay names (display names and connect codes zeroed).
+
+    Why: every replay in our library is from netplay, so every render shows the players' names
+    under their damage; tournament console footage never does. Rendering some games without the
+    names shows whether perception depends on them (added 2026-11-01). Names do not change the
+    game, so the labels in data/parsed/ stay right."""
+    out = bytearray(data)
+    i = data.find(b"raw[$U#l") + 12          # first byte of the raw event stream (0x35)
+    n = data[i + 1]
+    sizes = {data[i + 2 + 3 * k]: struct.unpack(">H", data[i + 3 + 3 * k:i + 5 + 3 * k])[0]
+             for k in range((n - 1) // 3)}
+    pos = i + 1 + n                          # Game Start is the first event after the sizes
+    assert data[pos] == GAME_START, "Game Start not where expected"
+    for offset, length in NAME_ARRAYS:
+        if offset + 4 * length <= 1 + sizes[GAME_START]:
+            out[pos + offset:pos + offset + 4 * length] = bytes(4 * length)
+    return bytes(out)

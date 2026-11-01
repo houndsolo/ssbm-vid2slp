@@ -43,6 +43,10 @@ a different game (checked 2026-11-01: identical until a respawn at frame 1076, t
 the labels of a moved render come from the replay Playback Dolphin records while it plays
 (the game actually shown), parsed like data/parsed/ -> <render>/labels.parquet.
 Output: data/m3/renders_ports/ (with --widescreen too: data/m3/renders_ws_ports/).
+
+--nonames (added 2026-11-01): blank the netplay names (slp_ports.blank_names) so playback shows
+no name under each player's damage, like tournament console footage. Names do not change the
+game, so the labels in data/parsed/ stay right. Output: data/m3/renders_nonames/.
 (Widescreen alone does not change the game: positions identical over 3,939 frames.)
 
 Run (inside tmux; on the V100 = nvidia-smi GPU 1, 6 in parallel is the measured sweet spot):
@@ -68,7 +72,7 @@ from vid2slp import hud_timer
 from vid2slp.matchups import wanted_games
 from vid2slp.playback import regenerate
 from vid2slp.slp_parse import parse_replay
-from vid2slp.slp_ports import move_ports
+from vid2slp.slp_ports import blank_names, move_ports
 
 OUT = "data/m3/renders"
 WORK = "data/m3/work"
@@ -107,12 +111,12 @@ WS_CROP = (297, 10, 1285, 977)       # x, y, w, h of the 4:3 middle in it (fitte
 
 
 def render_one(job):
-    sha, slp, last_frame, start_seconds, gpu, encoder, widescreen, ports = job
+    sha, slp, last_frame, start_seconds, gpu, encoder, widescreen, ports, nonames = job
     out = os.path.join(OUT, sha)
     if os.path.exists(os.path.join(out, "info.json")):
         return sha, "skipped"
     # the work folder names the kind of render, so two kinds can run at once on the same game
-    work = os.path.join(WORK, ("ws_" if widescreen else "") + ("pt_" if ports else "") + sha)
+    work = os.path.join(WORK, ("ws_" if widescreen else "") + ("pt_" if ports else "") + ("nn_" if nonames else "") + sha)
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(out, exist_ok=True)
     t0 = time.time()
@@ -123,6 +127,12 @@ def render_one(job):
             moved = os.path.abspath(work) + "_moved.slp"
             open(moved, "wb").write(move_ports(open(slp, "rb").read(), port_pair(sha)))
             slp = moved
+        if nonames:
+            # a copy of the replay (or of the moved copy) without netplay names
+            os.makedirs(WORK, exist_ok=True)
+            nameless = os.path.abspath(work) + "_nonames.slp"
+            open(nameless, "wb").write(blank_names(open(slp, "rb").read()))
+            slp = nameless
         regenerated, _ = regenerate(slp, work, end=last_frame, timeout=3600, stall_seconds=30, gpu=gpu,
                                     dump_video={"codec": "ffv1", "fmt": "avi", "kbps": 25000},
                                     widescreen=widescreen)
@@ -170,12 +180,15 @@ def render_one(job):
         "mp4_bytes": os.path.getsize(os.path.join(out, "video.mp4")), "encoder": encoder,
         "widescreen": bool(widescreen), **({"widescreen_crop_xywh": list(WS_CROP)} if widescreen else {}),
         "ports": list(port_pair(sha)) if ports else [1, 2],
+        "names": not nonames,
         **({"crf": CRF} if encoder == "x264" else {"nvenc_cq": NVENC_CQ}),
     }
     json.dump(info, open(os.path.join(out, "info.json"), "w"), indent=1)
     shutil.rmtree(work, ignore_errors=True)
     if ports and os.path.exists(os.path.abspath(work) + "_moved.slp"):
         os.remove(os.path.abspath(work) + "_moved.slp")
+    if nonames and os.path.exists(os.path.abspath(work) + "_nonames.slp"):
+        os.remove(os.path.abspath(work) + "_nonames.slp")
     return sha, (f"{info['video_frames']} video frames, {info['labeled_frames']} labeled, "
                  f"increasing={increasing}, {info['total_seconds']:.0f}s")
 
@@ -194,9 +207,11 @@ def main():
                     help="how to compress the video: nvenc (V100, default) or x264 (CPU)")
     ap.add_argument("--widescreen", action="store_true", help="16:9 widescreen renders -> data/m3/renders_ws/")
     ap.add_argument("--ports", action="store_true", help="players on another port pair -> data/m3/renders_ports/")
+    ap.add_argument("--nonames", action="store_true", help="no netplay names under the damage -> data/m3/renders_nonames/")
     args = ap.parse_args()
     global OUT
-    OUT = "data/m3/renders" + ("_ws" if args.widescreen else "") + ("_ports" if args.ports else "")
+    OUT = ("data/m3/renders" + ("_ws" if args.widescreen else "") + ("_ports" if args.ports else "")
+           + ("_nonames" if args.nonames else ""))
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
 
@@ -216,10 +231,10 @@ def main():
     jobs = []
     for row in games.itertuples():
         start_seconds = peppi_py.read_slippi(row.path, skip_frames=True).start.timer
-        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder, args.widescreen, args.ports))
+        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder, args.widescreen, args.ports, args.nonames))
     # record which games were chosen (with the seed) so the selection is reproducible
     pd.DataFrame([j[:4] for j in jobs], columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
-        f"data/m3/selection_{args.split}{'_ws' if args.widescreen else ''}{'_ports' if args.ports else ''}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
+        f"data/m3/selection_{args.split}{'_ws' if args.widescreen else ''}{'_ports' if args.ports else ''}{'_nonames' if args.nonames else ''}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
     print(f"{args.split}: rendering {len(jobs)} games with {args.parallel} in parallel", flush=True)
     t0 = time.time()
     with Pool(args.parallel) as pool:

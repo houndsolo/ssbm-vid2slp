@@ -45,12 +45,13 @@ import torch
 RENDERS = "data/m3/renders"
 RENDERS_WS = "data/m3/renders_ws"
 # other kinds of render (scripts/m3_render.py): key prefix -> folder
-VARIANTS = {"ws": RENDERS_WS, "pt": "data/m3/renders_ports", "wp": "data/m3/renders_ws_ports"}
+VARIANTS = {"ws": RENDERS_WS, "pt": "data/m3/renders_ports", "wp": "data/m3/renders_ws_ports",
+            "nn": "data/m3/renders_nonames"}     # nn: no netplay names (m3_render.py --nonames)
 
 
 def game_dir(key):
     """Folder of a rendered game: "<sha256>" = normal render; "ws:<sha256>" = widescreen,
-    "pt:<sha256>" = players moved to other ports, "wp:<sha256>" = both."""
+    "pt:<sha256>" = players moved to other ports, "wp:<sha256>" = both, "nn:<sha256>" = no netplay names."""
     if ":" in key:
         prefix, sha = key.split(":", 1)
         return os.path.join(VARIANTS[prefix], sha)

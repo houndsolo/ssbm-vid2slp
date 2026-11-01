@@ -5,6 +5,7 @@ can be compared with a newer one on exactly the same clips.
 
 Run:
     .venv/bin/python scripts/m3_eval_clips.py --runs percep_v4cd percep_v5pt --kinds pt
+    .venv/bin/python scripts/m3_eval_clips.py --runs percep_v6soft --kinds nn --paired
 """
 
 import argparse
@@ -24,6 +25,9 @@ def main():
     ap.add_argument("--runs", nargs="+", required=True)
     ap.add_argument("--kinds", default="pt", help="extra render kinds, comma separated ('' = none)")
     ap.add_argument("--soften", default="", help="also score softened copies of the normal clips, e.g. 0.6,0.5 (perception_data.soften)")
+    ap.add_argument("--paired", action="store_true",
+                    help="for each extra kind, also score the NORMAL renders of the same games (normal@<kind>), "
+                         "so the two can be compared game for game")
     ap.add_argument("--batch", type=int, default=2)        # small: the GPU is shared
     ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args()
@@ -31,6 +35,10 @@ def main():
     sets = {"normal": rendered_games("validation")}
     for k in filter(None, args.kinds.split(",")):
         sets[k] = rendered_games("validation", k)
+        if args.paired:
+            normal = set(sets["normal"])
+            sets[f"normal@{k}"] = [s for s in (key.split(":", 1)[1] for key in sets[k]) if s in normal]
+            sets[k] = [f"{k}:{s}" for s in sets[f"normal@{k}"]]   # only games that have both
     datasets = {name: FixedClips(shas, clip, size, per_game) for name, shas in sets.items()}
     for f in filter(None, args.soften.split(",")):
         datasets[f"soft{f}"] = SoftenedClips(datasets["normal"], float(f))
@@ -42,7 +50,7 @@ def main():
         model.load_state_dict(torch.load(f"data/m3/runs/{run}/best.pt", map_location=device)["model"])
         for name, loader in loaders.items():
             m = evaluate(model, loader, device)
-            print(f"{run:14s} {name:7s} " + "  ".join(f"{k} {v:.4f}" for k, v in m.items()), flush=True)
+            print(f"{run:14s} {name:9s} " + "  ".join(f"{k} {v:.4f}" for k, v in m.items()), flush=True)
 
 
 if __name__ == "__main__":
