@@ -114,12 +114,17 @@ def render_top_mask(n_games=6, rows=120):
 def fit_crop(frames, guess):
     """Scale and shift the guessed crop until the stream's average timer digits overlay our
     renders' (timer area only: the rest of the top of the screen is often covered by overlays).
-      1. Coarse, for every scale from 0.45 to 1.30: template matching (OpenCV) finds the best
-         shift anywhere in the picture (stream layouts may shrink the game a lot or move it
-         off-centre to make room for player cameras).
+      1. Coarse, for every width scale a from 0.45 to 1.30 and every height/width ratio from
+         0.86 to 1.14: template matching (OpenCV) finds the best shift anywhere in the picture
+         (stream layouts may shrink the game a lot or move it off-centre to make room for player
+         cameras). The ratio matters: a Slippi widescreen picture's 4:3 game area is NOT 4:3 in
+         video pixels (it is 584:480 like our renders, full height), so a guessed 4:3 crop is
+         ~9 % too wide for its height. Before 2026-11-01 the ratio was fixed here, which left
+         widescreen crops 8 % short vertically and broke perception on them.
       2. Fine: scales a (width) and c (height) separately and sub-pixel shifts around the best.
     Returns (crop (x, y, w, h) in video pixels, correlation 0..1: ~0.8 on a good fit)."""
     import cv2
+    frame_height = frames[0].shape[0]
     stream = top_mask(frames, guess, rows=480).astype(np.float32)
     render = render_top_mask().astype(np.float32)
     x0, x1, y0, y1 = 200, 400, 40, 90                 # the timer area in 584 x 480
@@ -127,9 +132,10 @@ def fit_crop(frames, guess):
     r = template - template.mean()
 
     best = (-1.0, None)
-    for a in np.arange(0.45, 1.31, 0.01):
-        # scaled stream mask: pixel (u, v) of it is guessed-crop pixel (a*u, a*v)
-        scaled = cv2.resize(stream, (int(round(584 / a)), int(round(480 / a))), interpolation=cv2.INTER_AREA)
+    for a, ratio in [(a, r) for a in np.arange(0.45, 1.31, 0.01) for r in np.arange(0.86, 1.141, 0.02)]:
+        c = a * ratio
+        # scaled stream mask: pixel (u, v) of it is guessed-crop pixel (a*u, c*v)
+        scaled = cv2.resize(stream, (int(round(584 / a)), int(round(480 / c))), interpolation=cv2.INTER_AREA)
         res = cv2.matchTemplate(scaled, template, cv2.TM_CCOEFF_NORMED)
         # near-blank patches give unstable scores (dividing by almost no contrast): only accept
         # places where the stream mask has at least half the template's contrast
@@ -140,7 +146,7 @@ def fit_crop(frames, guess):
         res = np.where(std >= 0.5 * template.std(), res, -1)
         _, v, _, (u0, v0) = cv2.minMaxLoc(res)
         if v > best[0]:
-            best = (v, (a, a, a * (u0 - x0), a * (v0 - y0)))
+            best = (v, (a, c, a * (u0 - x0), c * (v0 - y0)))
 
     def score(a, c, bx, by):
         # output pixel (x, y) takes the guessed-crop pixel (a*x + bx, c*y + by); rows 0..y1 only
@@ -149,19 +155,30 @@ def fit_crop(frames, guess):
         w = w - w.mean()
         return float((w * r).sum() / np.sqrt((w * w).sum() * (r * r).sum() + 1e-9))
 
-    a0, _, bx0, by0 = best[1]
-    best = (score(a0, a0, bx0, by0), best[1])
+    a0, c0, bx0, by0 = best[1]
+    best = (score(a0, c0, bx0, by0), best[1])
     for a in np.arange(a0 - 0.015, a0 + 0.016, 0.0025):
-        for c in np.arange(a0 - 0.015, a0 + 0.016, 0.0025):
+        for c in np.arange(c0 - 0.015, c0 + 0.016, 0.0025):
             for bx in np.arange(bx0 - 1.5, bx0 + 1.6, 0.25):
                 for by in np.arange(by0 - 1.5, by0 + 1.6, 0.25):
                     v = score(a, c, bx, by)
                     if v > best[0]:
                         best = (v, (a, c, bx, by))
     a, c, bx, by = best[1]
+
     gx, gy, gw, gh = guess
     # back to video pixels: guessed-crop pixel p is video pixel g0 + p * (guess size / 584 or 480)
     crop = (gx + bx * gw / 584, gy + by * gh / 480, a * gw, c * gh)
+    # 3. The timer is a short strip at the top, so it pins the height only loosely (on our
+    #    widescreen renders steps 1-2 gave 1043 of the true 1056 rows, 1.2 % short). Most streams
+    #    show the game at the full picture height: when the fit already reaches within 3 % of
+    #    both the top and bottom edge, take exactly the full height (keeping x and width, which
+    #    the timer pins well). A bottom-of-screen check with the damage display was tried and
+    #    did not work (it moved the height the wrong way), 2026-11-01.
+    H = frame_height
+    x, y, w, h = crop
+    if abs(y) <= 0.03 * H and abs(y + h - H) <= 0.03 * H:
+        crop = (x, 0, w, H)
     return tuple(int(round(v)) for v in crop), round(best[0], 3)
 
 

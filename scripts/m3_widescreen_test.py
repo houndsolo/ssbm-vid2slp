@@ -9,6 +9,10 @@ and dumped at 1878 x 1056, like a high-resolution stream capture), then treat ea
 like a real video (scripts/real_prepare.py: fit the 4:3 game area, shrink to 584 x 480, read
 the timer, cut), run perception, and score it against the true states, which we know.
 
+Result (2026-11-01, docs/experiments.md): widescreen itself is harmless. With the exact crop
+(the 584:480 middle at full height) perception scores the same as on normal renders; the
+first failure came from a crop fitted 8 % too short (fixed in real_prepare.fit_crop).
+
 Steps:
   --render: N games (default: the first 6 of data/m4/test_games_ucf084.txt, the same as the
             overlay test), frames up to --end, -> data/real/_ws_<sha12>/ (source.mp4 + game1/)
@@ -67,10 +71,11 @@ def render(args):
 
 def score(args):
     rows = []
-    for d in sorted(glob.glob("data/real/_ws_*")):
+    for d in sorted(glob.glob(f"data/real/{args.prefix}_*")):
         sha = json.load(open(f"{d}/sha.json"))["sha256"]
         crop = json.load(open(f"{d}/crop.json"))
-        ws = pd.read_parquet(f"{d}/pred_{args.run}/game1.parquet")
+        pred = f"{d}/pred_{args.run}_countdown" if os.path.isdir(f"{d}/pred_{args.run}_countdown") else f"{d}/pred_{args.run}"
+        ws = pd.read_parquet(f"{pred}/game1.parquet")
         clean = pd.read_parquet(f"data/m3/pred/{args.run}_countdown/{sha}.parquet")
         rows.append({"game": sha[:12], "widescreen": True, "fit": crop["fit_correlation"], **score_table(ws, sha)})
         rows.append({"game": sha[:12], "widescreen": False, "fit": None, **score_table(clean, sha)})
@@ -88,6 +93,9 @@ def main():
     ap.add_argument("--n", type=int, default=6)
     ap.add_argument("--end", type=int, default=3700, help="last game frame rendered")
     ap.add_argument("--run", default="percep_v4cd")
+    ap.add_argument("--prefix", default="_ws",
+                    help="which folders to score: _ws (crop fitted by real_prepare) or _wsfix (re-cut with "
+                         "the exact crop 297,0,1285,1056: the 584:480 middle at full height, 2026-11-01)")
     args = ap.parse_args()
     if args.render:
         render(args)

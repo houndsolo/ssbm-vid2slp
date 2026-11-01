@@ -66,6 +66,10 @@ def get_args():
     ap.add_argument("--ws-share", type=float, default=0.0,
                     help="share of training clips from the EXTRA renders: widescreen (data/m3/renders_ws), "
                          "other ports (renders_ports) and both (renders_ws_ports), whichever exist")
+    ap.add_argument("--extra-kinds", default="pt",
+                    help="which extra render kinds --ws-share draws from, comma separated (ws, pt, wp). "
+                         "Default pt only: widescreen footage is handled by cropping it correctly "
+                         "(real_prepare.py, fixed 2026-11-01), so it needs no training of its own")
     ap.add_argument("--overlay-share", type=float, default=0.0,
                     help="share of training clips with a made-up stream overlay pasted on")
     return ap.parse_args()
@@ -165,7 +169,7 @@ def main():
     # the extra kinds of render (widescreen, other ports, both)
     extra_train, extra_val = [], {}
     if args.ws_share > 0:
-        for prefix in VARIANTS:
+        for prefix in args.extra_kinds.split(","):
             tr, va = rendered_games("train", prefix), rendered_games("validation", prefix)
             extra_train += tr
             if va:
