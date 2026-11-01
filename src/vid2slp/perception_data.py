@@ -20,6 +20,14 @@ What we predict per player (first version; all visible on screen, directly or ov
     stocks      stocks left (classes 0..4)
     shield      shield size 0..60 (regression; divided by 60)
 
+Widescreen renders (scripts/m3_render.py --widescreen, since 2026-11-01) live in
+data/m3/renders_ws/<sha256>/ with the same files; such a game is named "ws:<sha256>" here.
+
+Made-up stream overlays (random_overlay, since 2026-11-01): banners, boxes and bars pasted onto
+training clips so the model learns to ignore them. Real streams cover parts of the picture with
+scoreboards, webcams and chat; an overlay taken from one real stream cut action accuracy from
+0.963 to 0.812 (scripts/m3_overlay_test.py).
+
 Video timestamps: Dolphin skips some frames, so the mp4 has gaps in its timestamps. We never
 convert time to frame number by multiplying; instead we build each video's sorted list of
 timestamps once (pts_table) and look frames up in it.
@@ -35,6 +43,19 @@ import pandas as pd
 import torch
 
 RENDERS = "data/m3/renders"
+RENDERS_WS = "data/m3/renders_ws"
+
+
+def game_dir(key):
+    """Folder of a rendered game: "<sha256>" = normal render, "ws:<sha256>" = widescreen render."""
+    if key.startswith("ws:"):
+        return os.path.join(RENDERS_WS, key[3:])
+    return os.path.join(RENDERS, key)
+
+
+def game_sha(key):
+    """The replay's sha256 of a game key (labels are the same for both kinds of render)."""
+    return key[3:] if key.startswith("ws:") else key
 POS_SCALE = 100.0
 
 CAT_FIELDS = {"character": 40, "action": 512, "stocks": 5}           # name -> number of classes
@@ -69,11 +90,11 @@ def game_labels(sha, countdown=False):
     "valid" [n_video_frames] (bool) and "game_frame" [n_video_frames].
     countdown: also label the countdown frames from -39 on (extend_countdown).
     """
-    fmap = np.load(os.path.join(RENDERS, sha, "frame_map.npy"))
+    fmap = np.load(os.path.join(game_dir(sha), "frame_map.npy"))
     valid = fmap >= 0
     if countdown:
         fmap, valid = extend_countdown(fmap)
-    df = pd.read_parquet(f"data/parsed/{sha}.parquet")
+    df = pd.read_parquet(f"data/parsed/{game_sha(sha)}.parquet")
     ports = sorted(df.port.unique())
     assert len(ports) == 2, f"{sha}: expected 2 players, got ports {ports}"
     first = int(df.frame.min())
@@ -123,7 +144,7 @@ class Game:
 
     def __init__(self, sha, countdown=False):
         self.sha = sha
-        self.mp4 = os.path.join(RENDERS, sha, "video.mp4")
+        self.mp4 = os.path.join(game_dir(sha), "video.mp4")
         self.pts = pts_table(self.mp4)
         self.labels = game_labels(sha, countdown)
         n = len(self.labels["valid"])
@@ -155,14 +176,84 @@ def to_tensors(video, labels):
     return out
 
 
+# the timer area (fractions of width / height): never covered, real streams keep it visible
+TIMER_AREA = (0.37, 0.66, 0.10, 0.18)
+# the damage / stock display of ports 1 and 2 (bottom left half)
+HUD_AREA = (0.0, 0.56, 0.74, 0.98)
+
+
+def random_overlay(rng, h, w):
+    """A made-up stream overlay for an h x w picture: (alpha [h, w] float 0..1, image [h, w, 3]).
+    1-4 pieces, each one of:
+      banner - a band along the top (scoreboard), 4-10 % of the height, part or all of the width
+      box    - a box at an edge or corner (webcam, logo, chat), 12-35 % of width and height
+      bar    - a low band at the bottom-left or bottom-right (chat, sponsor), 5-12 % high
+    Content: a flat colour, a gradient, or blurred noise (camera-like), with random thin
+    light/dark strokes (text-like). Opacity 0.6-1. The timer area is always left free."""
+    img = np.zeros((h, w, 3), np.float32)
+    alpha = np.zeros((h, w), np.float32)
+    for _ in range(rng.randint(1, 4)):
+        kind = rng.choice(["banner", "box", "box", "bar"])
+        if kind == "banner":
+            bh, bw = int(h * rng.uniform(0.04, 0.10)), int(w * rng.uniform(0.4, 1.0))
+            y0, x0 = 0, rng.randint(0, w - bw)
+        elif kind == "box":
+            bh, bw = int(h * rng.uniform(0.12, 0.35)), int(w * rng.uniform(0.12, 0.35))
+            y0 = rng.choice([0, h - bh, rng.randint(0, h - bh)])
+            x0 = rng.choice([0, w - bw])
+        else:
+            bh, bw = int(h * rng.uniform(0.05, 0.12)), int(w * rng.uniform(0.2, 0.5))
+            y0, x0 = h - bh, rng.choice([0, w - bw])
+        style = rng.choice(["flat", "gradient", "noise"])
+        colour = np.array([rng.randint(0, 255) for _ in range(3)], np.float32)
+        if style == "flat":
+            patch = np.broadcast_to(colour, (bh, bw, 3)).copy()
+        elif style == "gradient":
+            other = np.array([rng.randint(0, 255) for _ in range(3)], np.float32)
+            t = np.linspace(0, 1, bh, dtype=np.float32)[:, None, None]
+            patch = np.broadcast_to(colour * (1 - t) + other * t, (bh, bw, 3)).copy()
+        else:
+            nrng = np.random.default_rng(rng.randint(0, 2**31))
+            coarse = nrng.uniform(0, 255, (max(bh // 16, 2), max(bw // 16, 2), 3)).astype(np.float32)
+            patch = np.repeat(np.repeat(coarse, 16, 0), 16, 1)[:bh, :bw]
+            if patch.shape[:2] != (bh, bw):
+                patch = np.pad(patch, ((0, bh - patch.shape[0]), (0, bw - patch.shape[1]), (0, 0)), mode="edge")
+        for _ in range(rng.randint(0, 6)):                     # text-like strokes
+            sh, sw = rng.randint(1, max(bh // 6, 2)), rng.randint(2, max(bw // 2, 3))
+            sy, sx = rng.randint(0, max(bh - sh, 1)), rng.randint(0, max(bw - sw, 1))
+            patch[sy:sy + sh, sx:sx + sw] = 255.0 if rng.random() < 0.5 else 0.0
+        img[y0:y0 + bh, x0:x0 + bw] = patch
+        alpha[y0:y0 + bh, x0:x0 + bw] = rng.uniform(0.6, 1.0)
+    x0, x1, y0, y1 = TIMER_AREA
+    alpha[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = 0.0
+    if rng.random() < 0.8:
+        # usually keep the two players' damage/stock display free too (streams rarely cover it;
+        # when it is covered the clip's damage label can't be seen, which only adds noise)
+        x0, x1, y0, y1 = HUD_AREA
+        alpha[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = 0.0
+    return alpha, img
+
+
+def paste_overlay(video, rng):
+    """Paste one made-up overlay onto every frame of a clip (uint8 [T, H, W, 3]); it stays put
+    for the whole clip, like a real one."""
+    alpha, img = random_overlay(rng, video.shape[1], video.shape[2])
+    a = alpha[None, :, :, None]
+    return (video.astype(np.float32) * (1 - a) + img[None] * a).astype(np.uint8)
+
+
 class RandomClips(torch.utils.data.IterableDataset):
     """Endless stream of random clips from a list of games (for training)."""
 
-    def __init__(self, shas, length, size, seed=0, countdown_share=0.0):
+    def __init__(self, shas, length, size, seed=0, countdown_share=0.0, ws_shas=(), ws_share=0.0,
+                 overlay_share=0.0):
         """countdown_share > 0: label the countdown frames -39..-1 too, and take that share of the
-        clips around them (they are only ~1 % of a game's frames)."""
+        clips around them (they are only ~1 % of a game's frames).
+        ws_shas / ws_share: widescreen games ("ws:<sha256>") and the share of clips taken from them.
+        overlay_share: share of clips that get a made-up stream overlay (paste_overlay)."""
         self.shas, self.length, self.size, self.seed = shas, length, size, seed
         self.countdown_share = countdown_share
+        self.ws_shas, self.ws_share, self.overlay_share = list(ws_shas), ws_share, overlay_share
 
     def __iter__(self):
         info = torch.utils.data.get_worker_info()
@@ -170,7 +261,10 @@ class RandomClips(torch.utils.data.IterableDataset):
         rng = random.Random(self.seed * 1000 + wid)
         games = {}
         while True:
-            sha = rng.choice(self.shas)
+            if self.ws_shas and rng.random() < self.ws_share:
+                sha = rng.choice(self.ws_shas)
+            else:
+                sha = rng.choice(self.shas)
             if sha not in games:
                 # each worker loads a game's labels the first time it is picked
                 games[sha] = Game(sha, countdown=self.countdown_share > 0)
@@ -180,4 +274,7 @@ class RandomClips(torch.utils.data.IterableDataset):
                 start = rng.randint(max(0, g.first_valid - self.length + 1), g.frame0)
             else:
                 start = rng.randint(g.first_valid, len(g) - self.length)
-            yield to_tensors(*g.clip(start, self.length, self.size))
+            video, labels = g.clip(start, self.length, self.size)
+            if rng.random() < self.overlay_share:
+                video = paste_overlay(video, rng)
+            yield to_tensors(video, labels)

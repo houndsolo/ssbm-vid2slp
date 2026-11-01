@@ -44,7 +44,9 @@ def get_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True)
     ap.add_argument("--steps", type=int, default=30000)
-    ap.add_argument("--batch", type=int, default=8, help="clips per step")
+    ap.add_argument("--batch", type=int, default=8, help="clips per batch")
+    ap.add_argument("--accum", type=int, default=1,
+                    help="batches per optimizer step (clips per step = batch x accum); for less GPU memory")
     ap.add_argument("--clip", type=int, default=32, help="frames per clip")
     ap.add_argument("--width", type=int, default=384)
     ap.add_argument("--height", type=int, default=320)
@@ -61,22 +63,29 @@ def get_args():
     ap.add_argument("--countdown-share", type=float, default=0.0,
                     help="also learn the countdown frames -39..-1 (players can move); this share of the "
                          "training clips is taken around them")
+    ap.add_argument("--ws-share", type=float, default=0.0,
+                    help="share of training clips from widescreen renders (data/m3/renders_ws)")
+    ap.add_argument("--overlay-share", type=float, default=0.0,
+                    help="share of training clips with a made-up stream overlay pasted on")
     return ap.parse_args()
 
 
-def rendered_games(split):
+def rendered_games(split, widescreen=False):
     """sha256 of every finished render that belongs to `split`, leaving out games whose playback
     ended early (desynced, see scripts/m3_frame_maps.py) and games whose on-screen timer did
     not start at 8 minutes, and games that are not Fox-Fox or Fox-Falco (owner's choices
     2026-10-27: only standard 8-minute games, only these matchups)."""
     manifest = pd.read_csv("data/parsed/manifest.csv").set_index("sha256")
     done = []
-    for p in glob.glob("data/m3/renders/*/info.json"):
+    root = "data/m3/renders_ws" if widescreen else "data/m3/renders"
+    for p in glob.glob(f"{root}/*/info.json"):
         info = json.load(open(p))
         if not info.get("playback_ended_early", False) and info["timer_start_seconds"] == 480:
             done.append(os.path.basename(os.path.dirname(p)))
     wanted = wanted_games()
-    return sorted(s for s in done if s in manifest.index and manifest.loc[s, "split"] == split and s in wanted)
+    shas = sorted(s for s in done if s in manifest.index and manifest.loc[s, "split"] == split and s in wanted)
+    # widescreen games are named "ws:<sha256>" (src/vid2slp/perception_data.py, game_dir)
+    return [f"ws:{s}" for s in shas] if widescreen else shas
 
 
 class FixedClips(torch.utils.data.Dataset):
@@ -151,12 +160,22 @@ def main():
     size = (args.width, args.height)
     train_shas, val_shas = rendered_games("train"), rendered_games("validation")
     say(f"games: {len(train_shas)} train, {len(val_shas)} validation")
+    ws_train, ws_val = rendered_games("train", True), rendered_games("validation", True)
+    if args.ws_share > 0:
+        say(f"widescreen games: {len(ws_train)} train, {len(ws_val)} validation; "
+            f"{args.ws_share:.0%} of clips widescreen, {args.overlay_share:.0%} with an overlay")
     train_loader = torch.utils.data.DataLoader(
-        RandomClips(train_shas, args.clip, size, args.seed, args.countdown_share), batch_size=args.batch,
+        RandomClips(train_shas, args.clip, size, args.seed, args.countdown_share,
+                    ws_train if args.ws_share > 0 else (), args.ws_share, args.overlay_share), batch_size=args.batch,
         num_workers=args.workers, pin_memory=True, persistent_workers=True, prefetch_factor=4)
     val_set = FixedClips(val_shas, args.clip, size, args.val_per_game)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch, num_workers=args.workers)
     say(f"validation clips: {len(val_set)}")
+    ws_loader = None
+    if args.ws_share > 0 and ws_val:
+        ws_set = FixedClips(ws_val, args.clip, size, args.val_per_game)
+        ws_loader = torch.utils.data.DataLoader(ws_set, batch_size=args.batch, num_workers=args.workers)
+        say(f"widescreen validation clips: {len(ws_set)}")
 
     model = Perception(size=size, max_len=args.clip).to(device)
     if args.init and not args.resume:
@@ -183,6 +202,7 @@ def main():
 
     model.train()
     t0, seen, running = time.time(), 0, {}
+    micro = 0                     # batches added up so far for the current step (--accum)
     for batch in train_loader:
         if step >= args.steps:
             break
@@ -192,16 +212,22 @@ def main():
         with torch.autocast("cuda", dtype=torch.float16):
             out = model(batch["video"])
         loss, parts = loss_fn(out, batch)
-        opt.zero_grad(set_to_none=True)
-        scaler.scale(loss).backward()
+        # --accum N: add up the gradients of N batches before one optimizer step (same result
+        # as one N times bigger batch, in less GPU memory)
+        scaler.scale(loss / args.accum).backward()
+        for k, v in parts.items():
+            running[k] = running.get(k, 0.0) + v / args.accum
+        micro += 1
+        if micro < args.accum:
+            continue
+        micro = 0
         scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         scaler.step(opt)
         scaler.update()
+        opt.zero_grad(set_to_none=True)
         step += 1
         seen += 1
-        for k, v in parts.items():
-            running[k] = running.get(k, 0.0) + v
         if step % 100 == 0:
             rate = seen / (time.time() - t0)
             say(f"step {step}/{args.steps}  loss {sum(running.values()) / seen:.4f}  "
@@ -211,16 +237,24 @@ def main():
         if step % args.eval_every == 0 or step == args.steps:
             te = time.time()
             m = evaluate(model, val_loader, device)
-            improved = m["action_acc"] > best
+            score = m["action_acc"]
+            if ws_loader is not None:
+                # widescreen games too; the best checkpoint is chosen on both kinds of footage
+                mw = evaluate(model, ws_loader, device)
+                m.update({f"ws_{k}": v for k, v in mw.items()})
+                score = (m["action_acc"] + mw["action_acc"]) / 2
+            improved = score > best
             if improved:
-                best = m["action_acc"]
+                best = score
                 save(f"{run_dir}/best.pt", m)
             save(f"{run_dir}/last.pt", m)
             with open(f"{run_dir}/metrics.jsonl", "a") as f:
                 f.write(json.dumps({"step": step, **m}) + "\n")
             say(f"VALIDATION step {step}: {fmt(m)}{'  (best)' if improved else ''}  [{time.time() - te:.0f}s]")
+            if ws_loader is not None:
+                say(f"  WIDESCREEN step {step}: {fmt(mw)}")
             t0, seen, running = time.time(), 0, {}
-    say(f"done. best validation action accuracy {best:.4f}")
+    say(f"done. best validation score {best:.4f} (action accuracy; with widescreen: mean of both)")
 
 
 if __name__ == "__main__":
