@@ -75,7 +75,11 @@ def sample_frames(path, n=300):
     """n frames spread evenly over the video (seek, take the next frame), RGB arrays."""
     container = av.open(path)
     stream = container.streams.video[0]
-    duration = float(stream.duration * stream.time_base)
+    if stream.duration is not None:
+        duration = float(stream.duration * stream.time_base)
+    else:
+        # some downloads (webm/mkv) only store the whole file's duration, in microseconds
+        duration = container.duration / 1e6
     frames = []
     for t in np.linspace(0.02, 0.98, n) * duration:
         container.seek(int(t / stream.time_base), stream=stream)
@@ -155,6 +159,10 @@ def fit_crop(frames, guess):
         w = w - w.mean()
         return float((w * r).sum() / np.sqrt((w * w).sum() * (r * r).sum() + 1e-9))
 
+    if best[1] is None:
+        # no place in the picture looked like a timer at any scale (seen 2026-11-01 on videos
+        # whose game area is tiny or that are not gameplay at all)
+        raise ValueError("could not find the in-game timer anywhere in the video")
     a0, c0, bx0, by0 = best[1]
     best = (score(a0, c0, bx0, by0), best[1])
     for a in np.arange(a0 - 0.015, a0 + 0.016, 0.0025):
@@ -316,10 +324,14 @@ def prepare(video_id, url="", crop_arg="", net=None, device="cpu"):
         if k < len(games):
             end = min(end, games[k][0] - 1)     # never into the next game
         prev_end = end
+        fmap, unused = frame_map_real(game_frame[start:end + 1])
+        if not (fmap >= 0).any():
+            # a "game" made only of misreads (seen on fEcj0swS3MI, 2026-11-01): nothing to keep
+            print(f"  game {k}: no consistent timer readings, skipped", flush=True)
+            continue
         out = f"{d}/game{k}"
         os.makedirs(out, exist_ok=True)
         np.savez_compressed(f"{out}/timer_crops.npz", crops=crops[start:end + 1])
-        fmap, unused = frame_map_real(game_frame[start:end + 1])
         shown_start = START_SECONDS
         np.save(f"{out}/frame_map.npy", fmap)
         write_game(f"{d}/full_584.mp4", (start, end), out)
