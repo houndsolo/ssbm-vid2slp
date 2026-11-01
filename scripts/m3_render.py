@@ -34,6 +34,17 @@ our normal renders, fitted by scripts/real_prepare.py: x 297, y 10, 1285 x 977; 
 6 test renders) shrunk to 584 x 480 -> data/m3/renders_ws/<sha256>/. Why: perception trained on
 normal renders fails on widescreen ones (characters 68 %, stocks 52 %, scripts/m3_widescreen_test.py).
 
+--ports (added 2026-11-01): move the two players to another pair of controller ports before
+rendering (src/vid2slp/slp_ports.py; the pair is picked from the sha256, never 1-2), because
+the damage/stock display sits at a different place for each port and our library only has
+ports 1-2 (tournament footage uses any port). The game does NOT always play out the same:
+the respawn platform's place depends on the port, so after the first death the moved game is
+a different game (checked 2026-11-01: identical until a respawn at frame 1076, then not). So
+the labels of a moved render come from the replay Playback Dolphin records while it plays
+(the game actually shown), parsed like data/parsed/ -> <render>/labels.parquet.
+Output: data/m3/renders_ports/ (with --widescreen too: data/m3/renders_ws_ports/).
+(Widescreen alone does not change the game: positions identical over 3,939 frames.)
+
 Run (inside tmux; on the V100 = nvidia-smi GPU 1, 6 in parallel is the measured sweet spot):
     .venv/bin/python scripts/m3_render.py --split train --count 600 --parallel 6 --gpu 1
     add --gpu 0 to draw on the GT 1030 (much faster; same pictures, checked 2026-10-27)
@@ -56,6 +67,8 @@ import torch
 from vid2slp import hud_timer
 from vid2slp.matchups import wanted_games
 from vid2slp.playback import regenerate
+from vid2slp.slp_parse import parse_replay
+from vid2slp.slp_ports import move_ports
 
 OUT = "data/m3/renders"
 WORK = "data/m3/work"
@@ -81,22 +94,42 @@ def timer_crops_from_video(avi):
     return np.stack(crops)
 
 
+PORT_PAIRS = [(1, 3), (1, 4), (2, 3), (2, 4), (3, 4)]   # every ordered pair except 1-2
+
+
+def port_pair(sha):
+    """The port pair a game is moved to (--ports): picked from its sha256, so it is repeatable."""
+    return PORT_PAIRS[int(sha[:8], 16) % len(PORT_PAIRS)]
+
+
 WS_DUMP = (1878, 1056)               # widescreen dump size at 2x
 WS_CROP = (297, 10, 1285, 977)       # x, y, w, h of the 4:3 middle in it (fitted)
 
 
 def render_one(job):
-    sha, slp, last_frame, start_seconds, gpu, encoder, widescreen = job
+    sha, slp, last_frame, start_seconds, gpu, encoder, widescreen, ports = job
     out = os.path.join(OUT, sha)
     if os.path.exists(os.path.join(out, "info.json")):
         return sha, "skipped"
-    work = os.path.join(WORK, sha)
+    # the work folder names the kind of render, so two kinds can run at once on the same game
+    work = os.path.join(WORK, ("ws_" if widescreen else "") + ("pt_" if ports else "") + sha)
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(out, exist_ok=True)
     t0 = time.time()
     try:
-        regenerate(slp, work, end=last_frame, timeout=3600, stall_seconds=30, gpu=gpu,
-                   dump_video={"codec": "ffv1", "fmt": "avi", "kbps": 25000}, widescreen=widescreen)
+        if ports:
+            # a copy of the replay with the players on other ports (labels stay the same)
+            os.makedirs(WORK, exist_ok=True)
+            moved = os.path.abspath(work) + "_moved.slp"
+            open(moved, "wb").write(move_ports(open(slp, "rb").read(), port_pair(sha)))
+            slp = moved
+        regenerated, _ = regenerate(slp, work, end=last_frame, timeout=3600, stall_seconds=30, gpu=gpu,
+                                    dump_video={"codec": "ffv1", "fmt": "avi", "kbps": 25000},
+                                    widescreen=widescreen)
+        if ports:
+            # labels = the game actually played and shown (see --ports above)
+            table, _ = parse_replay(regenerated)
+            table.to_parquet(os.path.join(out, "labels.parquet"), index=False, compression="zstd")
         avi = os.path.join(work, "user", "Dump", "Frames", "framedump0.avi")
         if widescreen:
             # keep the 4:3 middle, shrunk to 584 x 480, still lossless (FFV1)
@@ -136,10 +169,13 @@ def render_one(job):
         "render_seconds": round(t_render, 1), "total_seconds": round(time.time() - t0, 1),
         "mp4_bytes": os.path.getsize(os.path.join(out, "video.mp4")), "encoder": encoder,
         "widescreen": bool(widescreen), **({"widescreen_crop_xywh": list(WS_CROP)} if widescreen else {}),
+        "ports": list(port_pair(sha)) if ports else [1, 2],
         **({"crf": CRF} if encoder == "x264" else {"nvenc_cq": NVENC_CQ}),
     }
     json.dump(info, open(os.path.join(out, "info.json"), "w"), indent=1)
     shutil.rmtree(work, ignore_errors=True)
+    if ports and os.path.exists(os.path.abspath(work) + "_moved.slp"):
+        os.remove(os.path.abspath(work) + "_moved.slp")
     return sha, (f"{info['video_frames']} video frames, {info['labeled_frames']} labeled, "
                  f"increasing={increasing}, {info['total_seconds']:.0f}s")
 
@@ -157,10 +193,10 @@ def main():
     ap.add_argument("--encoder", default="nvenc", choices=list(ENCODE),
                     help="how to compress the video: nvenc (V100, default) or x264 (CPU)")
     ap.add_argument("--widescreen", action="store_true", help="16:9 widescreen renders -> data/m3/renders_ws/")
+    ap.add_argument("--ports", action="store_true", help="players on another port pair -> data/m3/renders_ports/")
     args = ap.parse_args()
     global OUT
-    if args.widescreen:
-        OUT = "data/m3/renders_ws"
+    OUT = "data/m3/renders" + ("_ws" if args.widescreen else "") + ("_ports" if args.ports else "")
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
 
@@ -180,10 +216,10 @@ def main():
     jobs = []
     for row in games.itertuples():
         start_seconds = peppi_py.read_slippi(row.path, skip_frames=True).start.timer
-        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder, args.widescreen))
+        jobs.append((row.sha256, row.path, int(row.last_frame), int(start_seconds), args.gpu, args.encoder, args.widescreen, args.ports))
     # record which games were chosen (with the seed) so the selection is reproducible
     pd.DataFrame([j[:4] for j in jobs], columns=["sha256", "path", "last_frame", "timer_start_seconds"]).to_csv(
-        f"data/m3/selection_{args.split}{'_ws' if args.widescreen else ''}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
+        f"data/m3/selection_{args.split}{'_ws' if args.widescreen else ''}{'_ports' if args.ports else ''}_seed{args.seed}_n{args.count}_{time.strftime('%Y%m%d%H%M')}.csv", index=False)
     print(f"{args.split}: rendering {len(jobs)} games with {args.parallel} in parallel", flush=True)
     t0 = time.time()
     with Pool(args.parallel) as pool:

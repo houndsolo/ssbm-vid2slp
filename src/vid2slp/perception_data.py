@@ -44,18 +44,29 @@ import torch
 
 RENDERS = "data/m3/renders"
 RENDERS_WS = "data/m3/renders_ws"
+# other kinds of render (scripts/m3_render.py): key prefix -> folder
+VARIANTS = {"ws": RENDERS_WS, "pt": "data/m3/renders_ports", "wp": "data/m3/renders_ws_ports"}
 
 
 def game_dir(key):
-    """Folder of a rendered game: "<sha256>" = normal render, "ws:<sha256>" = widescreen render."""
-    if key.startswith("ws:"):
-        return os.path.join(RENDERS_WS, key[3:])
+    """Folder of a rendered game: "<sha256>" = normal render; "ws:<sha256>" = widescreen,
+    "pt:<sha256>" = players moved to other ports, "wp:<sha256>" = both."""
+    if ":" in key:
+        prefix, sha = key.split(":", 1)
+        return os.path.join(VARIANTS[prefix], sha)
     return os.path.join(RENDERS, key)
 
 
 def game_sha(key):
-    """The replay's sha256 of a game key (labels are the same for both kinds of render)."""
-    return key[3:] if key.startswith("ws:") else key
+    """The replay's sha256 of a game key."""
+    return key.split(":", 1)[1] if ":" in key else key
+
+
+def labels_path(key):
+    """Label table of a rendered game: the render's own labels.parquet when it has one (port-moved
+    renders: the moved game can differ from the original after a respawn), else data/parsed/."""
+    own = os.path.join(game_dir(key), "labels.parquet")
+    return own if os.path.exists(own) else f"data/parsed/{game_sha(key)}.parquet"
 POS_SCALE = 100.0
 
 CAT_FIELDS = {"character": 40, "action": 512, "stocks": 5}           # name -> number of classes
@@ -94,7 +105,7 @@ def game_labels(sha, countdown=False):
     valid = fmap >= 0
     if countdown:
         fmap, valid = extend_countdown(fmap)
-    df = pd.read_parquet(f"data/parsed/{game_sha(sha)}.parquet")
+    df = pd.read_parquet(labels_path(sha))
     ports = sorted(df.port.unique())
     assert len(ports) == 2, f"{sha}: expected 2 players, got ports {ports}"
     first = int(df.frame.min())
