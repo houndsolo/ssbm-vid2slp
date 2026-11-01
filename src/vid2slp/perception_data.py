@@ -164,6 +164,11 @@ class Game:
         self.first_valid = int(np.argmax(self.labels["valid"]))
         # the video frame of game frame 0 (countdown clips are taken just before it)
         self.frame0 = int(np.argmax(self.labels["valid"] & (self.labels["game_frame"] >= 0)))
+        # the last labelled video frame. Port-moved renders (m3_render.py --ports) often end
+        # their game early (the moved game falls apart after the first death) while the video
+        # runs on, unlabelled, for thousands of frames; clips must not start out there
+        # (percep_v5real did, 2026-11-01: empty batches gave nan losses and skipped steps).
+        self.last_valid = n - 1 - int(np.argmax(self.labels["valid"][::-1]))
 
     def __len__(self):
         return len(self.pts)
@@ -284,7 +289,8 @@ class RandomClips(torch.utils.data.IterableDataset):
                 # a clip that contains countdown frames (anywhere from -39 to a clip after frame 0)
                 start = rng.randint(max(0, g.first_valid - self.length + 1), g.frame0)
             else:
-                start = rng.randint(g.first_valid, len(g) - self.length)
+                start = rng.randint(g.first_valid, max(g.first_valid, min(len(g) - self.length,
+                                                                          g.last_valid - self.length // 2)))
             video, labels = g.clip(start, self.length, self.size)
             if rng.random() < self.overlay_share:
                 video = paste_overlay(video, rng)

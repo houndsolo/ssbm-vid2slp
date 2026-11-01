@@ -67,6 +67,11 @@ class Perception(nn.Module):
 def loss_fn(out, batch):
     """Sum of per-field losses over labelled frames (batch["valid"]). Returns (loss, parts)."""
     valid = batch["valid"]                                     # [B, T]
+    if not bool(valid.any()):
+        # no labelled frame in the whole batch: an average over nothing would be nan, and a nan
+        # gradient makes the GradScaler skip the whole optimizer step. Give a zero loss instead.
+        zero = out["reg"].float().sum() * 0.0
+        return zero, {k: 0.0 for k in list(CAT_FIELDS) + ["bin", "reg"]}
     parts = {}
     for k in CAT_FIELDS:
         logits = out[k][valid].float()                         # [N, 2, classes]
