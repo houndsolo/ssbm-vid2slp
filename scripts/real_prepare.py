@@ -37,7 +37,8 @@ Limits (real footage, nothing is known for sure yet):
     the frame map rules allow skips but drop readings around a repeated frame.
 
 Run:
-    .venv/bin/python scripts/real_prepare.py --url https://youtu.be/EAqS1j1oL2o --id EAqS1j1oL2o --widescreen
+    .venv/bin/python scripts/real_prepare.py --id EAqS1j1oL2o                 # one video
+    .venv/bin/python scripts/real_prepare.py --list data/real/download.csv    # many (restartable)
 """
 
 import argparse
@@ -48,6 +49,7 @@ import subprocess
 
 import av
 import numpy as np
+import pandas as pd
 import torch
 from PIL import Image
 
@@ -60,9 +62,13 @@ COUNTDOWN = 123              # the countdown lasts from game frame -123 to 0
 
 
 def download(url, out):
-    """60 fps video only, best quality up to 1080p (we shrink it anyway)."""
-    subprocess.run([".venv/bin/yt-dlp", "-f", "bv*[fps>=50][height<=1080]", "-o", out,
-                    "--write-info-json", url], check=True)
+    """60 fps video only, 720p if there is one (the game area ends up 480 pixels tall anyway,
+    and 720p is about half the size of 1080p), else the best 60 fps up to 1080p.
+    Slowly: YouTube answered "too many requests" when we checked formats 8 at a time, so wait
+    between requests and between videos."""
+    subprocess.run([".venv/bin/yt-dlp", "-f", "bv*[fps>=50][height<=720][height>=700]/bv*[fps>=50][height<=1080]",
+                    "-o", out, "--write-info-json", "--sleep-requests", "2",
+                    "--sleep-interval", "20", "--max-sleep-interval", "60", url], check=True)
 
 
 def sample_frames(path, n=300):
@@ -107,28 +113,44 @@ def render_top_mask(n_games=6, rows=120):
 
 def fit_crop(frames, guess):
     """Scale and shift the guessed crop until the stream's average timer digits overlay our
-    renders' (correlation of the two average masks, timer area only: the rest of the top of
-    the screen is covered by stream overlays). Coarse search, then a finer one around the best.
-    Returns (crop (x, y, w, h) in video pixels, correlation 0..1)."""
-    stream, render = top_mask(frames, guess), render_top_mask()
+    renders' (timer area only: the rest of the top of the screen is often covered by overlays).
+      1. Coarse, for every scale from 0.45 to 1.30: template matching (OpenCV) finds the best
+         shift anywhere in the picture (stream layouts may shrink the game a lot or move it
+         off-centre to make room for player cameras).
+      2. Fine: scales a (width) and c (height) separately and sub-pixel shifts around the best.
+    Returns (crop (x, y, w, h) in video pixels, correlation 0..1: ~0.8 on a good fit)."""
+    import cv2
+    stream = top_mask(frames, guess, rows=480).astype(np.float32)
+    render = render_top_mask().astype(np.float32)
     x0, x1, y0, y1 = 200, 400, 40, 90                 # the timer area in 584 x 480
-    r = render[y0:y1, x0:x1] - render[y0:y1, x0:x1].mean()
+    template = render[y0:y1, x0:x1]
+    r = template - template.mean()
+
+    best = (-1.0, None)
+    for a in np.arange(0.45, 1.31, 0.01):
+        # scaled stream mask: pixel (u, v) of it is guessed-crop pixel (a*u, a*v)
+        scaled = cv2.resize(stream, (int(round(584 / a)), int(round(480 / a))), interpolation=cv2.INTER_AREA)
+        res = cv2.matchTemplate(scaled, template, cv2.TM_CCOEFF_NORMED)
+        # near-blank patches give unstable scores (dividing by almost no contrast): only accept
+        # places where the stream mask has at least half the template's contrast
+        th, tw = template.shape
+        mean = cv2.boxFilter(scaled, -1, (tw, th), anchor=(0, 0), normalize=True, borderType=cv2.BORDER_CONSTANT)
+        sq = cv2.boxFilter(scaled * scaled, -1, (tw, th), anchor=(0, 0), normalize=True, borderType=cv2.BORDER_CONSTANT)
+        std = np.sqrt(np.maximum(sq - mean * mean, 0))[:res.shape[0], :res.shape[1]]
+        res = np.where(std >= 0.5 * template.std(), res, -1)
+        _, v, _, (u0, v0) = cv2.minMaxLoc(res)
+        if v > best[0]:
+            best = (v, (a, a, a * (u0 - x0), a * (v0 - y0)))
 
     def score(a, c, bx, by):
-        # output pixel (x, y) takes the guessed-crop pixel (a*x + bx, c*y + by)
-        w = np.asarray(Image.fromarray(stream.astype(np.float32)).transform(
-            (584, stream.shape[0]), Image.AFFINE, (a, 0, bx, 0, c, by), Image.BILINEAR))[y0:y1, x0:x1]
+        # output pixel (x, y) takes the guessed-crop pixel (a*x + bx, c*y + by); rows 0..y1 only
+        w = np.asarray(Image.fromarray(stream).transform(
+            (584, y1), Image.AFFINE, (a, 0, bx, 0, c, by), Image.BILINEAR))[y0:y1, x0:x1]
         w = w - w.mean()
         return float((w * r).sum() / np.sqrt((w * w).sum() * (r * r).sum() + 1e-9))
 
-    best = (-1.0, None)
-    for a in np.arange(0.80, 1.06, 0.01):
-        for bx in np.arange(-40, 41, 1.0):
-            for by in np.arange(-20, 21, 1.0):
-                v = score(a, a, bx, by)
-                if v > best[0]:
-                    best = (v, (a, a, bx, by))
     a0, _, bx0, by0 = best[1]
+    best = (score(a0, a0, bx0, by0), best[1])
     for a in np.arange(a0 - 0.015, a0 + 0.016, 0.0025):
         for c in np.arange(a0 - 0.015, a0 + 0.016, 0.0025):
             for bx in np.arange(bx0 - 1.5, bx0 + 1.6, 0.25):
@@ -231,24 +253,20 @@ def write_game(full, frames, out):
                     f"{out}/video.mp4"], check=True)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default="")
-    ap.add_argument("--id", required=True, help="name of the folder under data/real/")
-    ap.add_argument("--widescreen", action="store_true", help="16:9 widescreen game: keep the middle 4:3")
-    ap.add_argument("--crop", default="", help="x,y,w,h of the game's 4:3 picture in video pixels (skips the fit)")
-    args = ap.parse_args()
-    d = f"{REAL}/{args.id}"
+def prepare(video_id, url="", crop_arg="", net=None, device="cpu"):
+    """Download (if needed), fit, shrink, read the timer and cut one video into games."""
+    d = f"{REAL}/{video_id}"
     os.makedirs(d, exist_ok=True)
     if not os.path.exists(f"{d}/source.mp4"):
-        download(args.url, f"{d}/source.mp4")
+        download(url or f"https://youtu.be/{video_id}", f"{d}/source.mp4")
     if not os.path.exists(f"{d}/full_584.mp4"):
         probe = av.open(f"{d}/source.mp4").streams.video[0]
         W, H = probe.width, probe.height
-        # first guess: the whole picture, or its middle 4:3 part for widescreen
-        guess = (round((W - H * 4 / 3) / 2), 0, round(H * 4 / 3), H) if args.widescreen else (0, 0, W, H)
-        if args.crop:
-            crop, fit = tuple(int(v) for v in args.crop.split(",")), None
+        # first guess: the middle 4:3 part of a wide (16:9) picture, else the whole picture.
+        # (Widescreen games and 4:3 games shown in a 16:9 stream both have their HUD there.)
+        guess = (round((W - H * 4 / 3) / 2), 0, round(H * 4 / 3), H) if W / H > 1.4 else (0, 0, W, H)
+        if crop_arg:
+            crop, fit = tuple(int(v) for v in crop_arg.split(",")), None
         else:
             print(f"fitting the game area (first guess {guess}) ...", flush=True)
             crop, fit = fit_crop(sample_frames(f"{d}/source.mp4"), guess)
@@ -260,8 +278,6 @@ def main():
 
     print("reading the timer on every frame ...", flush=True)
     crops = all_timer_crops(f"{d}/full_584.mp4")
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    net = hud_timer.load_digit_net(device)
     # min_prob 0.5 instead of 0.99: on this stream the small centisecond digits are often read
     # with less confidence (compression, an overlay icon touches them) but still right; the
     # consistency rule in frame_map_real() removes misreads. Measured on game 3 of
@@ -272,7 +288,7 @@ def main():
     n_read = int((game_frame >= 0).sum())
     print(f"{len(crops)} video frames, {n_read} with a timer reading ({n_read / len(crops):.1%})")
 
-    games = find_games(game_frame)
+    games = find_games(game_frame) if n_read else []
     summary = []
     prev_end = -1
     for k, (a, b) in enumerate(games, start=1):
@@ -312,6 +328,32 @@ def main():
         summary.append({"game": k, **info})
         print(json.dumps({"game": k, **info}))
     json.dump(summary, open(f"{d}/games.json", "w"), indent=1)
+    return len(games), n_read / len(crops)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--url", default="")
+    ap.add_argument("--id", default="", help="name of the folder under data/real/ (the YouTube id)")
+    ap.add_argument("--list", default="", help="csv with an 'id' column (real_find_videos.py): do them all")
+    ap.add_argument("--widescreen", action="store_true", help="(no longer needed: the first guess is automatic)")
+    ap.add_argument("--crop", default="", help="x,y,w,h of the game's 4:3 picture in video pixels (skips the fit)")
+    args = ap.parse_args()
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    net = hud_timer.load_digit_net(device)
+    if not args.list:
+        prepare(args.id, args.url, args.crop, net, device)
+        return
+    ids = pd.read_csv(args.list).id.tolist()
+    for k, vid in enumerate(ids, start=1):
+        if os.path.exists(f"{REAL}/{vid}/games.json"):
+            continue                                   # done before (restartable)
+        print(f"=== {k}/{len(ids)} {vid}", flush=True)
+        try:
+            n_games, share = prepare(vid, net=net, device=device)
+            print(f"=== {vid}: {n_games} games, timer read on {share:.1%} of frames", flush=True)
+        except Exception as e:                         # one bad video must not stop the batch
+            print(f"=== {vid}: ERROR {type(e).__name__}: {e}", flush=True)
 
 
 if __name__ == "__main__":
