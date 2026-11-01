@@ -339,7 +339,9 @@ def main():
     ap.add_argument("--widescreen", action="store_true", help="(no longer needed: the first guess is automatic)")
     ap.add_argument("--crop", default="", help="x,y,w,h of the game's 4:3 picture in video pixels (skips the fit)")
     args = ap.parse_args()
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    # the timer network is tiny: run it on the CPU and leave the GPU free for training (2026-11-01)
+    device = "cpu"
+    torch.set_num_threads(4)
     net = hud_timer.load_digit_net(device)
     if not args.list:
         prepare(args.id, args.url, args.crop, net, device)

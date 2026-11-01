@@ -34,7 +34,7 @@ import torch
 
 from vid2slp.id_model import lr_at
 from vid2slp.matchups import wanted_games
-from vid2slp.perception_data import BIN_FIELDS, CAT_FIELDS, REG_FIELDS, Game, RandomClips, to_tensors
+from vid2slp.perception_data import BIN_FIELDS, CAT_FIELDS, REG_FIELDS, VARIANTS, Game, RandomClips, to_tensors
 from vid2slp.perception_model import Perception, loss_fn
 
 OUT = "data/m3/runs"
@@ -64,28 +64,30 @@ def get_args():
                     help="also learn the countdown frames -39..-1 (players can move); this share of the "
                          "training clips is taken around them")
     ap.add_argument("--ws-share", type=float, default=0.0,
-                    help="share of training clips from widescreen renders (data/m3/renders_ws)")
+                    help="share of training clips from the EXTRA renders: widescreen (data/m3/renders_ws), "
+                         "other ports (renders_ports) and both (renders_ws_ports), whichever exist")
     ap.add_argument("--overlay-share", type=float, default=0.0,
                     help="share of training clips with a made-up stream overlay pasted on")
     return ap.parse_args()
 
 
-def rendered_games(split, widescreen=False):
+def rendered_games(split, prefix=""):
     """sha256 of every finished render that belongs to `split`, leaving out games whose playback
     ended early (desynced, see scripts/m3_frame_maps.py) and games whose on-screen timer did
     not start at 8 minutes, and games that are not Fox-Fox or Fox-Falco (owner's choices
-    2026-10-27: only standard 8-minute games, only these matchups)."""
+    2026-10-27: only standard 8-minute games, only these matchups).
+    prefix "" = normal renders; "ws" / "pt" / "wp" = the extra kinds (perception_data.VARIANTS),
+    returned as "<prefix>:<sha256>"."""
     manifest = pd.read_csv("data/parsed/manifest.csv").set_index("sha256")
     done = []
-    root = "data/m3/renders_ws" if widescreen else "data/m3/renders"
+    root = VARIANTS[prefix] if prefix else "data/m3/renders"
     for p in glob.glob(f"{root}/*/info.json"):
         info = json.load(open(p))
         if not info.get("playback_ended_early", False) and info["timer_start_seconds"] == 480:
             done.append(os.path.basename(os.path.dirname(p)))
     wanted = wanted_games()
     shas = sorted(s for s in done if s in manifest.index and manifest.loc[s, "split"] == split and s in wanted)
-    # widescreen games are named "ws:<sha256>" (src/vid2slp/perception_data.py, game_dir)
-    return [f"ws:{s}" for s in shas] if widescreen else shas
+    return [f"{prefix}:{s}" for s in shas] if prefix else shas
 
 
 class FixedClips(torch.utils.data.Dataset):
@@ -160,10 +162,17 @@ def main():
     size = (args.width, args.height)
     train_shas, val_shas = rendered_games("train"), rendered_games("validation")
     say(f"games: {len(train_shas)} train, {len(val_shas)} validation")
-    ws_train, ws_val = rendered_games("train", True), rendered_games("validation", True)
+    # the extra kinds of render (widescreen, other ports, both)
+    extra_train, extra_val = [], {}
     if args.ws_share > 0:
-        say(f"widescreen games: {len(ws_train)} train, {len(ws_val)} validation; "
-            f"{args.ws_share:.0%} of clips widescreen, {args.overlay_share:.0%} with an overlay")
+        for prefix in VARIANTS:
+            tr, va = rendered_games("train", prefix), rendered_games("validation", prefix)
+            extra_train += tr
+            if va:
+                extra_val[prefix] = va
+            say(f"extra renders '{prefix}' ({VARIANTS[prefix]}): {len(tr)} train, {len(va)} validation")
+        say(f"{args.ws_share:.0%} of clips from extra renders, {args.overlay_share:.0%} with an overlay")
+    ws_train = extra_train
     train_loader = torch.utils.data.DataLoader(
         RandomClips(train_shas, args.clip, size, args.seed, args.countdown_share,
                     ws_train if args.ws_share > 0 else (), args.ws_share, args.overlay_share), batch_size=args.batch,
@@ -171,11 +180,11 @@ def main():
     val_set = FixedClips(val_shas, args.clip, size, args.val_per_game)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch, num_workers=args.workers)
     say(f"validation clips: {len(val_set)}")
-    ws_loader = None
-    if args.ws_share > 0 and ws_val:
-        ws_set = FixedClips(ws_val, args.clip, size, args.val_per_game)
-        ws_loader = torch.utils.data.DataLoader(ws_set, batch_size=args.batch, num_workers=args.workers)
-        say(f"widescreen validation clips: {len(ws_set)}")
+    extra_loaders = {}
+    for prefix, va in extra_val.items():
+        vs = FixedClips(va, args.clip, size, args.val_per_game)
+        extra_loaders[prefix] = torch.utils.data.DataLoader(vs, batch_size=args.batch, num_workers=args.workers)
+        say(f"validation clips '{prefix}': {len(vs)}")
 
     model = Perception(size=size, max_len=args.clip).to(device)
     if args.init and not args.resume:
@@ -237,12 +246,13 @@ def main():
         if step % args.eval_every == 0 or step == args.steps:
             te = time.time()
             m = evaluate(model, val_loader, device)
-            score = m["action_acc"]
-            if ws_loader is not None:
-                # widescreen games too; the best checkpoint is chosen on both kinds of footage
-                mw = evaluate(model, ws_loader, device)
-                m.update({f"ws_{k}": v for k, v in mw.items()})
-                score = (m["action_acc"] + mw["action_acc"]) / 2
+            # the extra kinds too; the best checkpoint is chosen on the mean over all kinds
+            scores, extra_m = [m["action_acc"]], {}
+            for prefix, loader in extra_loaders.items():
+                extra_m[prefix] = evaluate(model, loader, device)
+                m.update({f"{prefix}_{k}": v for k, v in extra_m[prefix].items()})
+                scores.append(extra_m[prefix]["action_acc"])
+            score = sum(scores) / len(scores)
             improved = score > best
             if improved:
                 best = score
@@ -251,10 +261,10 @@ def main():
             with open(f"{run_dir}/metrics.jsonl", "a") as f:
                 f.write(json.dumps({"step": step, **m}) + "\n")
             say(f"VALIDATION step {step}: {fmt(m)}{'  (best)' if improved else ''}  [{time.time() - te:.0f}s]")
-            if ws_loader is not None:
-                say(f"  WIDESCREEN step {step}: {fmt(mw)}")
+            for prefix, mx in extra_m.items():
+                say(f"  {prefix.upper()} step {step}: {fmt(mx)}")
             t0, seen, running = time.time(), 0, {}
-    say(f"done. best validation score {best:.4f} (action accuracy; with widescreen: mean of both)")
+    say(f"done. best validation score {best:.4f} (action accuracy; with extra renders: mean over all kinds)")
 
 
 if __name__ == "__main__":
