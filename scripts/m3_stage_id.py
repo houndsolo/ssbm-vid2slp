@@ -43,7 +43,13 @@ SIZE = (32, 24)          # thumbnail width, height
 
 def thumbnails(sha):
     """All keyframes of a game's video as small colour thumbnails, float32 [n, 24*32*3] in 0..1."""
-    container = av.open(os.path.join(RENDERS, sha, "video.mp4"))
+    return thumbnails_of_video(os.path.join(RENDERS, sha, "video.mp4"))
+
+
+def thumbnails_of_video(path):
+    """Same as thumbnails(), for any 584 x 480 game video (e.g. a cut real game,
+    data/real/<id>/game<k>/video.mp4; used by scripts/real_rebuild.py)."""
+    container = av.open(path)
     stream = container.streams.video[0]
     stream.codec_context.skip_frame = "NONKEY"     # decode keyframes only (fast)
     out = [f.to_ndarray(format="rgb24", width=SIZE[0], height=SIZE[1]) for f in container.decode(stream)]
