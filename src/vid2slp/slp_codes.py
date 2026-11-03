@@ -76,3 +76,20 @@ def ucf_version(path):
     if UCF_DASHBACK in addresses:
         return "old"
     return "none"
+
+
+# Slippi's "NeutralSpawn" code (General Codes; injected at this address). With it, the 1st and 2nd
+# player of a 1v1 always start on the stage's two neutral spawn points, whatever their ports.
+# Netplay always runs it; tournament consoles (e.g. Genesis 7, 2020) did not: there each player
+# starts on the stage's own spawn point of their port (see without_code()).
+NEUTRAL_SPAWN = 0x8016E510
+
+
+def without_code(gecko, address):
+    """A Gecko list (bytes) with every code injected at `address` left out.
+
+    Why: the native engine and Slippi Playback both run a replay's gameplay codes only when the
+    replay's own list carries them (data/native/melee-unlocked/sourceport/game/shim/mu_replay.c,
+    mu_replay_allows). Leaving NeutralSpawn out of the list we give the engine (it is copied into
+    the recording) makes both start the players on vanilla Melee's port-based spawn points."""
+    return b"".join(entry for a, _, entry in codes(gecko) if a != address)

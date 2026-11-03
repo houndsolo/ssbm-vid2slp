@@ -476,7 +476,8 @@ def run_game(job):
 
     def open_engine():
         """The engine on our starting file (--countdown: from the start of the countdown)."""
-        return Engine(base_slp, codes=CODES, preroll=args["countdown"], frame_offset=off)
+        # args["codes"] (optional): another Gecko list, e.g. without NeutralSpawn (real_rebuild.py)
+        return Engine(base_slp, codes=args.get("codes", CODES), preroll=args["countdown"], frame_offset=off)
 
     def attempt(a_start, a_stop, rng):
         """One attempt: replay the kept inputs up to a_start, then search frames a_start..a_stop.

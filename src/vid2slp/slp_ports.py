@@ -105,3 +105,21 @@ def blank_names(data):
         if offset + 4 * length <= 1 + sizes[GAME_START]:
             out[pos + offset:pos + offset + 4 * length] = bytes(4 * length)
     return bytes(out)
+
+
+def set_spawn_points(data, spawns):
+    """.slp bytes -> .slp bytes with the players' spawn point bytes set.
+
+    spawns: {player index 0-3: spawn point}. The game start event stores, per player, the
+    match setup's "spawn point" byte (offset 5 of the player block, PlayerInitData.spawn_pos in
+    the decomp): -1 = the stage's spawn point of the player's own port (vanilla Melee: what a
+    console at a tournament does), 0-3 = that spawn point. Netplay replays store 0 and 1, but
+    there the NeutralSpawn code (slp_codes.NEUTRAL_SPAWN) decides the start position anyway.
+    Added 2026-11-03 for real footage (scripts/real_rebuild.py --spawns)."""
+    out = bytearray(data)
+    i = data.find(b"raw[$U#l") + 12          # first byte of the raw event stream (0x35)
+    pos = i + 1 + data[i + 1]                # Game Start is the first event after the sizes
+    assert data[pos] == GAME_START, "Game Start not where expected"
+    for player, spawn in spawns.items():
+        out[pos + 0x65 + 0x24 * player + 5] = spawn & 0xFF
+    return bytes(out)

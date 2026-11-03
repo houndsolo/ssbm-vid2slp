@@ -17,11 +17,18 @@ downloaded video (scripts/real_prepare.py) and read by perception (scripts/m3_pr
   - ports:       the ports seen in the video (where the damage "%" signs sit). Every replay in
                  our library uses ports 1 and 2, so the starting file is first moved to the
                  video's ports (src/vid2slp/slp_ports.py) and the engine plays those ports, so
-                 the HUD sits where the video shows it. (Checked 2026-11-02 on Genesis 7 set 1,
-                 game 1: ports 1-3 instead of 1-2 gave the very same game. The start positions
-                 still differ from the video, both players spawn elsewhere: probably the spawn
-                 rules of our netplay starting files vs this console setup. Not fixed; the closed
-                 loop catches up within a few seconds.)
+                 the HUD sits where the video shows it.
+  - start positions (--spawns, added 2026-11-03): Slippi netplay (all our starting files) runs
+                 the "NeutralSpawn" code: the two players always start on the stage's two neutral
+                 spawn points. A tournament console without it (vanilla Melee, e.g. Genesis 7)
+                 starts each player on the stage's spawn point of their PORT (Battlefield, ports
+                 1 and 3: P1 on the ground in the middle, P3 on the left platform). "vanilla"
+                 leaves NeutralSpawn out of the engine's code list (the recording carries the
+                 list, so Slippi Playback does the same) and sets the players' spawn point bytes
+                 to -1 (= their port's). "auto" (default) plays the first frames with both rules
+                 and keeps the one whose start positions are closer to what perception saw at
+                 the first frame players can move; a game whose video misses the countdown takes
+                 the other games' choice (or vanilla).
 
 Because there is no original replay, the only score is how well the rebuilt game FOLLOWS what
 perception read from the video (action, position, damage, stocks). That says nothing about the
@@ -29,7 +36,7 @@ mistakes perception itself made; the comparison video (scripts/real_compare_vide
 check for that.
 
 Run (in tmux; about 45-50 minutes of computer time per minute of game, games run in parallel):
-    .venv/bin/python scripts/real_rebuild.py --id 5njRxIAgS-o --games 1,2,3 --tag v0
+    .venv/bin/python scripts/real_rebuild.py --id 5njRxIAgS-o --games 1,2,3 --tag v1
     .venv/bin/python scripts/real_rebuild.py --id 5njRxIAgS-o --games 1 --end 300 --tag smoke
 Output: data/real/<id>/rebuild/<tag>/game<k>.slp, results.csv, config.json.
 """
@@ -51,10 +58,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import m3_stage_id                                       # noqa: E402  (scripts/m3_stage_id.py)
 import real_prepare                                      # noqa: E402  (scripts/real_prepare.py)
 from m4_closed_loop import COUNTDOWN, INTERNAL_TO_EXTERNAL, choose_template, run_game   # noqa: E402
+from m4_closed_loop import CODES                                                          # noqa: E402
+from vid2slp.engine import Engine                                                        # noqa: E402
 from vid2slp.id_data import FEATURE_SETS, arrays_from_states                             # noqa: E402
 from vid2slp.id_model import build_from_config, predict_probs                            # noqa: E402
 from vid2slp.slp_parse import parse_replay                                               # noqa: E402
-from vid2slp.slp_ports import move_ports                                                 # noqa: E402
+from vid2slp.slp_codes import NEUTRAL_SPAWN, without_code                                # noqa: E402
+from vid2slp.slp_ports import move_ports, set_spawn_points                               # noqa: E402
 
 REAL = "data/real"
 # Centre column of each port's damage "%" sign in a 584 x 480 game picture, measured on our
@@ -116,6 +126,44 @@ def consistent(perceived):
     return pd.concat(out).sort_values(["frame", "port"]).reset_index(drop=True)
 
 
+def write_codes(out_dir):
+    """The engine's Gecko list for each spawn rule, written into out_dir. Returns {rule: path}."""
+    full = open(CODES, "rb").read()
+    paths = {"neutral": f"{out_dir}/codes_neutral.bin", "vanilla": f"{out_dir}/codes_vanilla.bin"}
+    open(paths["neutral"], "wb").write(full)
+    open(paths["vanilla"], "wb").write(without_code(full, NEUTRAL_SPAWN))
+    return paths
+
+
+def starting_file(template, ports, rule, path):
+    """Write the starting file: the template with its players moved to the video's ports and,
+    for the vanilla rule, spawn point bytes -1 (each player starts on their own port's point)."""
+    data = open(template, "rb").read()
+    if ports != (1, 2):
+        data = move_ports(data, ports)
+    if rule == "vanilla":
+        data = set_spawn_points(data, {p - 1: -1 for p in ports})
+    open(path, "wb").write(data)
+
+
+def engine_start(path, codes, ports):
+    """Where the engine puts the two players (x, y) just before they can move (Slippi frame -40)."""
+    with Engine(path, codes=codes, preroll=True) as e:
+        s = e.state()                                # Slippi frame -123, the countdown starts
+        while s["match_frame"] < -40:
+            s = e.step()
+        return np.array([[s["players"][p - 1]["x"], s["players"][p - 1]["y"]] for p in ports])
+
+
+def video_start(perceived):
+    """Where perception saw the two players (x, y) in the first 4 frames they can move (Slippi
+    frames -39..-36, median), or None if the video does not show both there (no countdown)."""
+    first = perceived[(perceived.frame >= -39) & (perceived.frame <= -36) & (perceived.seen > 0)]
+    if first.groupby("port").size().reindex([0, 1]).fillna(0).min() < 2:
+        return None
+    return first.groupby("port")[["x", "y"]].median().loc[[0, 1]].to_numpy()
+
+
 def follow_scores(rebuilt, perceived, end):
     """How closely the rebuilt game follows what perception read (frames 0..end)."""
     # the replay names players by their port (e.g. 0 and 2), perception by slot (0 = lower port)
@@ -142,6 +190,9 @@ def main():
     ap.add_argument("--perception", default="percep_v6soft")
     ap.add_argument("--m2", default="perc_v1")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--spawns", default="auto", choices=["auto", "vanilla", "neutral"],
+                    help="start positions: vanilla (port-based, tournament console), neutral (Slippi netplay) "
+                         "or auto (whichever is closer to the video's first frames)")
     ap.add_argument("--tag", required=True)
     args = ap.parse_args()
     out_dir = f"{REAL}/{args.id}/rebuild/{args.tag}"
@@ -160,6 +211,7 @@ def main():
     model = build_from_config(cfg, len(FEATURE_SETS[version])).to(device)
     model.load_state_dict(ck["model"])
 
+    codes = write_codes(out_dir)
     jobs, info = [], {}
     for k in [int(g) for g in args.games.split(",")]:
         video = f"{REAL}/{args.id}/game{k}/video.mp4"
@@ -182,28 +234,50 @@ def main():
         keep = min(T, end + settings["lookahead"] + 10)
         probs = {key: v[:keep] for key, v in probs.items()}
         name = f"game{k}"                       # run_game names its output after the first 12 characters
-        # the starting file with its players moved to the video's ports (engine port numbers 0-3)
+        # the starting file: players moved to the video's ports (engine port numbers 0-3) and,
+        # per spawn rule, its spawn point bytes; the rule's start positions vs the video's
         moved = f"{out_dir}/{name}_template.slp"
-        data = open(template, "rb").read()
-        open(moved, "wb").write(data if ports == (1, 2) else move_ports(data, ports))
-        jobs.append((name, moved, probs, per, [p - 1 for p in ports], end, settings, out_dir, None, perceived,
-                     int(name_to_id[stage])))
+        in_video = video_start(seen)
+        spawn_err = {}
+        for rule in ("vanilla", "neutral"):
+            starting_file(template, ports, rule, moved)
+            if in_video is not None:
+                start = engine_start(moved, codes[rule], ports)
+                spawn_err[rule] = round(float(np.linalg.norm(start - in_video, axis=1).mean()), 1)
+        rule = args.spawns
+        if rule == "auto":
+            rule = min(spawn_err, key=spawn_err.get) if spawn_err else None   # None: decided below
+        jobs.append([name, moved, probs, per, [p - 1 for p in ports], end, settings, out_dir, None, perceived,
+                     int(name_to_id[stage])])
         info[name] = {"stage": stage, "stage_margin": round(margin, 3), "characters": chars,
-                      "video_ports": list(ports), "port_votes": votes, "template": template, "seen": seen}
+                      "video_ports": list(ports), "port_votes": votes, "template": template,
+                      "spawns": rule, "spawn_error": spawn_err, "seen": seen}
         print(f"game {k}: {stage} (margin {margin:.2f}), characters {chars}, ports {ports} {votes}, "
+              f"spawns {rule or '(no countdown seen)'} (start position error per rule {spawn_err}), "
               f"{end - COUNTDOWN} frames to rebuild", flush=True)
+
+    # games whose video misses the countdown: the spawn rule the other games of this video
+    # showed (the same console all set long), or vanilla if none showed it
+    chosen = [v["spawns"] for v in info.values() if v["spawns"]]
+    fallback = max(set(chosen), key=chosen.count) if chosen else "vanilla"
+    for job in jobs:
+        name, moved = job[0], job[1]
+        rule = info[name]["spawns"] = info[name]["spawns"] or fallback
+        starting_file(info[name]["template"], tuple(info[name]["video_ports"]), rule, moved)
+        job[6] = {**settings, "spawns": rule, "codes": codes[rule]}
+        print(f"{name}: spawn rule {rule}", flush=True)
     del model
     torch.cuda.empty_cache()
 
     with ProcessPoolExecutor(len(jobs), mp_context=multiprocessing.get_context("spawn")) as pool:
-        runs = list(pool.map(run_game, jobs))
+        runs = list(pool.map(run_game, [tuple(j) for j in jobs]))
 
     rows = []
     for (name, *_), run in zip(jobs, runs):
         os.remove(f"{out_dir}/{name}_template.slp")
         rebuilt, _ = parse_replay(f"{out_dir}/{name}.slp")
         seen = info[name].pop("seen")
-        rows.append({**run, **{k: v for k, v in info[name].items() if k != "port_votes"},
+        rows.append({**run, **{k: v for k, v in info[name].items() if k not in ("port_votes", "spawn_error")},
                      **follow_scores(rebuilt, seen, min(args.end, run["last_frame"]))})
     res = pd.DataFrame(rows)
     res.to_csv(f"{out_dir}/results.csv", index=False)
