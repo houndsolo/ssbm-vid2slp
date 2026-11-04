@@ -29,6 +29,8 @@ downloaded video (scripts/real_prepare.py) and read by perception (scripts/m3_pr
                  and keeps the one whose start positions are closer to what perception saw at
                  the first frame players can move; a game whose video misses the countdown takes
                  the other games' choice (or vanilla).
+  - costumes (added 2026-11-04): read from the stock icons in the video (scripts/real_costume.py)
+                 and written into the starting file (looks only; the gameplay is the same).
 
 Because there is no original replay, the only score is how well the rebuilt game FOLLOWS what
 perception read from the video (action, position, damage, stocks). That says nothing about the
@@ -56,6 +58,7 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import m3_stage_id                                       # noqa: E402  (scripts/m3_stage_id.py)
+import real_costume                                      # noqa: E402  (scripts/real_costume.py)
 import real_prepare                                      # noqa: E402  (scripts/real_prepare.py)
 from m4_closed_loop import COUNTDOWN, INTERNAL_TO_EXTERNAL, choose_template, run_game   # noqa: E402
 from m4_closed_loop import CODES                                                          # noqa: E402
@@ -67,9 +70,7 @@ from vid2slp.slp_codes import NEUTRAL_SPAWN, without_code                       
 from vid2slp.slp_ports import move_ports, set_spawn_points                               # noqa: E402
 
 REAL = "data/real"
-# Centre column of each port's damage "%" sign in a 584 x 480 game picture, measured on our
-# renders with players on every port pair (data/m3/renders_ports, 2026-11-02).
-PERCENT_X = {1: 133, 2: 273, 3: 409, 4: 549}
+PERCENT_X = real_costume.PERCENT_X    # centre column of each port's damage "%" sign (584 x 480)
 
 # The closed-loop settings recommended in docs/stage_c_closed_loop.md ("How to run"), with
 # --countdown --from-video (nothing borrowed from an original game).
@@ -135,14 +136,17 @@ def write_codes(out_dir):
     return paths
 
 
-def starting_file(template, ports, rule, path):
+def starting_file(template, ports, rule, path, costumes=None):
     """Write the starting file: the template with its players moved to the video's ports and,
-    for the vanilla rule, spawn point bytes -1 (each player starts on their own port's point)."""
+    for the vanilla rule, spawn point bytes -1 (each player starts on their own port's point).
+    costumes (optional): the costume of each player (slot order), as seen in the video."""
     data = open(template, "rb").read()
     if ports != (1, 2):
         data = move_ports(data, ports)
     if rule == "vanilla":
         data = set_spawn_points(data, {p - 1: -1 for p in ports})
+    if costumes is not None:
+        data = real_costume.set_costumes(data, {p - 1: c for p, c in zip(ports, costumes)})
     open(path, "wb").write(data)
 
 
@@ -244,6 +248,9 @@ def main():
             if in_video is not None:
                 start = engine_start(moved, codes[rule], ports)
                 spawn_err[rule] = round(float(np.linalg.norm(start - in_video, axis=1).mean()), 1)
+        # costumes from the stock icons in the video (scripts/real_costume.py; looks only, the
+        # gameplay is the same in every costume)
+        dressed = real_costume.costumes(video, np.load(f"{REAL}/{args.id}/game{k}/frame_map.npy"), seen, chars, ports)
         rule = args.spawns
         if rule == "auto":
             rule = min(spawn_err, key=spawn_err.get) if spawn_err else None   # None: decided below
@@ -251,9 +258,11 @@ def main():
                      int(name_to_id[stage])])
         info[name] = {"stage": stage, "stage_margin": round(margin, 3), "characters": chars,
                       "video_ports": list(ports), "port_votes": votes, "template": template,
-                      "spawns": rule, "spawn_error": spawn_err, "seen": seen}
+                      "spawns": rule, "spawn_error": spawn_err, "costumes": [c for c, _, _ in dressed],
+                      "costume_margin": [round(m, 1) for _, m, _ in dressed], "seen": seen}
         print(f"game {k}: {stage} (margin {margin:.2f}), characters {chars}, ports {ports} {votes}, "
               f"spawns {rule or '(no countdown seen)'} (start position error per rule {spawn_err}), "
+              f"costumes {[c for c, _, _ in dressed]} (margins {[round(m, 1) for _, m, _ in dressed]}), "
               f"{end - COUNTDOWN} frames to rebuild", flush=True)
 
     # games whose video misses the countdown: the spawn rule the other games of this video
@@ -263,7 +272,7 @@ def main():
     for job in jobs:
         name, moved = job[0], job[1]
         rule = info[name]["spawns"] = info[name]["spawns"] or fallback
-        starting_file(info[name]["template"], tuple(info[name]["video_ports"]), rule, moved)
+        starting_file(info[name]["template"], tuple(info[name]["video_ports"]), rule, moved, info[name]["costumes"])
         job[6] = {**settings, "spawns": rule, "codes": codes[rule]}
         print(f"{name}: spawn rule {rule}", flush=True)
     del model
