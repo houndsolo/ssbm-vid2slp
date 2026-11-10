@@ -166,3 +166,49 @@ def write_frames(template_path, out_path, pre=None, post=None):
         counts.append(changed)
     open(out_path, "wb").write(bytes(data))
     return tuple(counts)
+
+
+# ---- longer replays (2026-11-05) ---------------------------------------------------------
+FRAME_START, FRAME_BOOKEND, GAME_END = 0x3A, 0x3C, 0x39
+
+
+def extend_frames(data, extra):
+    """.slp bytes -> .slp bytes with `extra` more frames at the end: copies of the last frame's
+    events (frame start, pre-frame, post-frame, frame bookend; no items) with the frame numbers
+    counted on, put before the Game End event.
+
+    Why: the engine stops where its starting file ends, and a real game can be longer than every
+    starting file we may use (six of 54 batch games, 2026-11-05: games of 11,600-14,200 frames,
+    the longest Slippi 3.19 replays of their stage and characters 11,100-13,200 frames). The
+    starting file's inputs and stored states are replaced or ignored anyway (closed loop: our
+    inputs, no resync, our own random numbers), so the copied frames only give the game room
+    to go on. Checked so far only by parsing (10,903 -> 11,503 frames); NOT yet played in the
+    engine or used by real_rebuild.py."""
+    start, end = _raw_bounds(data)
+    info_size = data[start + 1]
+    sizes = {}
+    for i in range(start + 2, start + 1 + info_size, 3):
+        sizes[data[i]] = struct.unpack(">H", data[i + 1:i + 3])[0]
+    events, pos = [], start
+    while pos < end:
+        cmd = data[pos]
+        size = info_size if cmd == PAYLOAD_SIZES else sizes[cmd]
+        events.append((pos, cmd, size))
+        pos += 1 + size
+    # the last frame: from its (last) Frame Start event to the last Frame Bookend
+    first = max(k for k, (_, cmd, _) in enumerate(events) if cmd == FRAME_START)
+    last_frame = struct.unpack(">i", data[events[first][0] + 1:events[first][0] + 5])[0]
+    block = [(p, cmd, size) for p, cmd, size in events[first:]
+             if cmd in (FRAME_START, PRE_FRAME, POST_FRAME, FRAME_BOOKEND)]
+    copies = bytearray()
+    for k in range(1, extra + 1):
+        for p, cmd, size in block:
+            event = bytearray(data[p:p + 1 + size])
+            event[1:5] = struct.pack(">i", last_frame + k)              # frame number
+            if cmd == FRAME_BOOKEND and size >= 8:
+                event[5:9] = struct.pack(">i", last_frame + k)          # latest finalized frame
+            copies += event
+    game_end = next((p for p, cmd, _ in events if cmd == GAME_END), end)
+    out = bytearray(data[:game_end]) + copies + bytearray(data[game_end:])
+    out[start - 4:start] = struct.pack(">I", end - start + len(copies))  # new length of "raw"
+    return bytes(out)

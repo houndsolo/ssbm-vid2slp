@@ -40,6 +40,13 @@ check for that.
 Run (in tmux; about 45-50 minutes of computer time per minute of game, games run in parallel):
     .venv/bin/python scripts/real_rebuild.py --id 5njRxIAgS-o --games 1,2,3 --tag v1
     .venv/bin/python scripts/real_rebuild.py --id 5njRxIAgS-o --games 1 --end 300 --tag smoke
+Speed (added 2026-11-10): the machine's CPU threads are shared between the games of the run
+(--engines, default = threads / games). With ONE game every thread works on it: several attempts
+of a segment run at the same time (--lanes, automatic), each with a few engine copies that play
+the candidates side by side (src/vid2slp/engine_pool.py). Same replay, byte for byte; measured on
+600 frames of game 3: 327 s -> 96-100 s (3.3-3.4x) on this 16-thread machine. The fastest way to
+rebuild one game is therefore to run it alone (--games 3); a whole set runs its games in parallel
+and each gets fewer threads.
 Output: data/real/<id>/rebuild/<tag>/game<k>.slp, results.csv, config.json.
 """
 
@@ -112,17 +119,51 @@ def stage_of(video):
     return m3_stage_id.predict(ref["x"], ref["y"], m3_stage_id.thumbnails_of_video(video))
 
 
+def non_increasing(values):
+    """The never-rising sequence closest to `values` (smallest total absolute change; "isotonic
+    regression" by pooling adjacent violators, each pool taking its weighted median).
+    Why (2026-11-05): the old rule, a running minimum, trusts the FIRST readings blindly. On some
+    videos perception reads 1 stock in the first frames after the countdown (before the stock icons
+    show), and the running minimum then kept that player at 1 stock for the whole game (13 of 57
+    batch games; real_costume.py then found no 4-stock frames and crashed). Here a short misreading
+    anywhere is simply outvoted by the readings around it."""
+    runs = []                                    # [value, length] of each run of equal values
+    for v in values:
+        if runs and runs[-1][0] == v:
+            runs[-1][1] += 1
+        else:
+            runs.append([v, 1])
+
+    def median(pool):                            # weighted median of [value, length] runs
+        order = sorted(pool, key=lambda r: r[0])
+        half, total = sum(r[1] for r in order) / 2, 0
+        for v, n in order:
+            total += n
+            if total >= half:
+                return v
+
+    pools = []                                   # [runs, median]
+    for run in runs:
+        pools.append([[run], run[0]])
+        # a later pool may not be above an earlier one: merge them until that holds
+        while len(pools) > 1 and pools[-1][1] > pools[-2][1]:
+            merged = pools[-2][0] + pools[-1][0]
+            pools[-2:] = [[merged, median(merged)]]
+    return np.concatenate([np.full(sum(n for _, n in pool), m) for pool, m in pools])
+
+
 def consistent(perceived):
     """Rules every real game obeys, applied to perception's per-frame guesses:
     one character per player for the whole game (the most common guess while the player is seen),
-    and stocks that never go back up (smoothed over 31 frames, then a running minimum)."""
+    and stocks that never go back up (smoothed over 31 frames, then the closest never-rising
+    sequence, non_increasing)."""
     out = []
     for port, g in perceived.groupby("port"):
         g = g.sort_values("frame").copy()
         seen = g[g.seen > 0]
         g["character"] = int((seen if len(seen) else g).character.mode().iloc[0])
         smooth = g.stocks.rolling(31, center=True, min_periods=1).median().round()
-        g["stocks"] = np.minimum.accumulate(smooth.to_numpy()).astype(g.stocks.dtype)
+        g["stocks"] = non_increasing(smooth.to_numpy()).astype(g.stocks.dtype)
         out.append(g)
     return pd.concat(out).sort_values(["frame", "port"]).reset_index(drop=True)
 
@@ -197,6 +238,13 @@ def main():
     ap.add_argument("--spawns", default="auto", choices=["auto", "vanilla", "neutral"],
                     help="start positions: vanilla (port-based, tournament console), neutral (Slippi netplay) "
                          "or auto (whichever is closer to the video's first frames)")
+    ap.add_argument("--engines", type=int, default=0,
+                    help="engine copies per game that play the search's candidates side by side (same result, "
+                         "faster; src/vid2slp/engine_pool.py). 0 (default) = as fast as possible: all CPU threads "
+                         "shared by the games being rebuilt. 1 = one engine per game (e.g. when many runs share "
+                         "the machine, as in scripts/real_rebuild_batch.sh)")
+    ap.add_argument("--lanes", type=int, default=0,
+                    help="attempts run at the same time per game, each with engines/lanes copies (0 = automatic)")
     ap.add_argument("--tag", required=True)
     args = ap.parse_args()
     out_dir = f"{REAL}/{args.id}/rebuild/{args.tag}"
@@ -268,12 +316,16 @@ def main():
     # games whose video misses the countdown: the spawn rule the other games of this video
     # showed (the same console all set long), or vanilla if none showed it
     chosen = [v["spawns"] for v in info.values() if v["spawns"]]
+    # engine copies per game: by default every CPU thread of the machine, shared by the games
+    engines = args.engines or max(1, (os.cpu_count() or 1) // len(jobs))
+    settings["engines"] = engines
+    print(f"{engines} engine copies per game", flush=True)
     fallback = max(set(chosen), key=chosen.count) if chosen else "vanilla"
     for job in jobs:
         name, moved = job[0], job[1]
         rule = info[name]["spawns"] = info[name]["spawns"] or fallback
         starting_file(info[name]["template"], tuple(info[name]["video_ports"]), rule, moved, info[name]["costumes"])
-        job[6] = {**settings, "spawns": rule, "codes": codes[rule]}
+        job[6] = {**settings, "spawns": rule, "codes": codes[rule], "engines": engines, "lanes": args.lanes}
         print(f"{name}: spawn rule {rule}", flush=True)
     del model
     torch.cuda.empty_cache()

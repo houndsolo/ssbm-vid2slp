@@ -14,6 +14,7 @@ per command (protocol "MUCONTROL 2", port/linux/retrace_control.cpp):
     step <40 numbers>  advance one frame (the 40 numbers are pad values, unused in replay mode)
     capture            save the state (one checkpoint; a new capture replaces it)
     restore            go back to the saved state
+    mark / back        a second, longer-lived saved state and going back to it (2026-11-05)
     override ...       replace a frame's inputs       (replay_source.h)
     override-state ... replace a frame's stored state (used with resync)
     clear-overrides
@@ -39,7 +40,8 @@ import struct
 import subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-HEADLESS = f"{ROOT}/data/native/build/headless/melee_headless"
+# VID2SLP_HEADLESS: another build of the host (e.g. a test build next to the one in use)
+HEADLESS = os.environ.get("VID2SLP_HEADLESS", f"{ROOT}/data/native/build/headless/melee_headless")
 GAME = f"{ROOT}/data/tools/native-engine/build/game/melee_game.so"
 ISO = f"{ROOT}/data/tools/native-engine/assets/melee.iso"
 SYS = f"{ROOT}/data/tools/playback/squashfs-root/usr/bin/Sys"   # Slippi Playback's Sys folder
@@ -203,6 +205,29 @@ class Engine:
         if reply != "RESTORED":
             raise RuntimeError(f"restore failed: {reply}")
         self._count = self._saved_count
+        self._state = self._fix(parse_state(self._line()))
+        return self._state
+
+    def mark(self):
+        """A second, longer-lived saved state (added 2026-11-05), e.g. the start of a search segment:
+        capture/restore can be used many times after it, and back() still returns here. Marking
+        again moves the mark. (Before, every search attempt restarted the engine and replayed the
+        game from the start to get back to its segment.)"""
+        self._send("mark")
+        reply = self._line()
+        if reply not in ("MARKED", "BACK"):
+            raise RuntimeError(f"mark failed: {reply}")
+        self._mark_count = self._count
+        self._state = self._fix(parse_state(self._line()))
+        return self._state
+
+    def back(self):
+        """Go back to the mark (see mark()). The ordinary capture is gone afterwards: capture again."""
+        self._send("back")
+        reply = self._line()
+        if reply != "BACK":
+            raise RuntimeError(f"back failed: {reply}")
+        self._count = self._mark_count
         self._state = self._fix(parse_state(self._line()))
         return self._state
 

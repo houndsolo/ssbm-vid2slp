@@ -80,6 +80,13 @@ fit the video), and the game's code list (our fixed UCF 0.84 list, data/m4/ucf08
 - Speed: with the recommended settings about 48 minutes per minute of game (2,870 s), 12 games
   at once on this server (16 cores), on the engine as sped up on 2026-10-30 (1.8x faster, same
   results). A 300-frame segment attempt takes about a minute per game.
+- Speed for ONE game (2026-11-10): `--engines N` gives a game N engine copies. Several attempts of a
+  segment run at the same time (lanes), and each lane's copies play the candidates side by side
+  (src/vid2slp/engine_pool.py). A second engine checkpoint (`mark`/`back`) keeps the segment
+  start, so an attempt no longer replays the game from frame 0. Replays are byte-identical to the
+  one-engine search. Measured on 600 frames of a real game: 327 s -> 95-100 s with 8-15 copies
+  (3.3-3.4x); more copies don't help (40: 124 s). The machine's total throughput is unchanged, so
+  for many games at once keep `--engines 1`.
 - Run-to-run luck is large: the same settings with another random seed can move one game's
   action match by +-0.07 or more, mostly through a few segments where the rebuilt game drifts
   away from the video. Compare settings over several seeds before trusting a difference.

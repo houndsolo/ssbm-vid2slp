@@ -242,33 +242,106 @@ index 1c4a066..2d0a611 100644
      const int result = linux_host::run();
  #ifdef MELEE_LINUX_GRAPHICS
 diff --git a/port/linux/process_checkpoint.cpp b/port/linux/process_checkpoint.cpp
-index eabb707..482d579 100644
+index eabb707..f9c26d5 100644
 --- a/port/linux/process_checkpoint.cpp
 +++ b/port/linux/process_checkpoint.cpp
-@@ -11,7 +11,17 @@
+@@ -10,8 +10,21 @@
+ #include <unistd.h>
  namespace linux_host {
  ProcessCheckpoint::~ProcessCheckpoint() { if (restore_fd_ >= 0) close(restore_fd_); }
++void ProcessCheckpoint::drop() {
++  if (!active()) return;
++  // vid2slp: we are a branch; our parent is the frozen copy of the checkpoint, blocked in waitpid.
++  // Stop dying with it and end it (it is never needed again).
++  if (prctl(PR_SET_PDEATHSIG, 0) != 0) throw std::runtime_error("checkpoint prctl failed");
++  const pid_t old_parent = getppid();
++  close(restore_fd_);
++  restore_fd_ = -1;
++  kill(old_parent, SIGKILL);
++}
  unsigned ProcessCheckpoint::capture() {
 -  if (active()) throw std::runtime_error("one checkpoint per session; close/start to capture another");
-+  if (active()) {
-+    // vid2slp: MOVE the checkpoint to here (a simulator steps forward and saves again and again).
-+    // We are a branch; our parent is the frozen copy of the old checkpoint, blocked in waitpid.
-+    // Stop dying with it, end it (it is never needed again), and capture afresh below with this
-+    // process as the new frozen parent, so there are never more than two processes.
-+    if (prctl(PR_SET_PDEATHSIG, 0) != 0) throw std::runtime_error("checkpoint prctl failed");
-+    const pid_t old_parent = getppid();
-+    close(restore_fd_);
-+    restore_fd_ = -1;
-+    kill(old_parent, SIGKILL);
-+  }
++  // vid2slp: capturing again MOVES the checkpoint to here (a simulator steps forward and saves
++  // again and again): end the old frozen copy and capture afresh below with this process as the
++  // new frozen parent, so there are never more than two processes (plus a mark's frozen copy).
++  drop();
    unsigned threads = 0;
    for (const auto& ignored : std::filesystem::directory_iterator("/proc/self/task")) { (void)ignored; ++threads; }
    if (threads != 1) throw std::runtime_error("checkpoint requires exactly one native thread");
+@@ -48,6 +61,61 @@ unsigned ProcessCheckpoint::capture() {
+     _exit(waited == child && WIFEXITED(status) ? WEXITSTATUS(status) : 1);
+   }
+ }
++MarkCheckpoint::~MarkCheckpoint() { if (back_fd_ >= 0) close(back_fd_); }
++unsigned MarkCheckpoint::mark(ProcessCheckpoint& inner) {
++  // vid2slp. Start clean: no ordinary checkpoint (its frozen copy ended), and an old mark's
++  // frozen copy ended too (we are one of its branches, maybe further down; stop dying with
++  // our parent first, which may be that copy).
++  inner.drop();
++  if (active()) {
++    if (prctl(PR_SET_PDEATHSIG, 0) != 0) throw std::runtime_error("mark prctl failed");
++    close(back_fd_);
++    back_fd_ = -1;
++    kill(holder_, SIGKILL);
++  }
++  unsigned threads = 0;
++  for (const auto& ignored : std::filesystem::directory_iterator("/proc/self/task")) { (void)ignored; ++threads; }
++  if (threads != 1) throw std::runtime_error("mark requires exactly one native thread");
++  std::fflush(nullptr);
++  const pid_t owner = getpid();
++  for (unsigned generation = 0; ; ++generation) {
++    int request_pipe[2];
++    if (pipe(request_pipe) != 0) throw std::runtime_error("mark pipe failed");
++    const pid_t child = fork();
++    if (child < 0) { close(request_pipe[0]); close(request_pipe[1]); throw std::runtime_error("mark fork failed"); }
++    if (child == 0) {
++      close(request_pipe[0]);
++      if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || getppid() != owner) _exit(1);
++      back_fd_ = request_pipe[1];
++      holder_ = owner;
++      return generation;
++    }
++    // The frozen copy: wait until some process of this branch (the branch itself, or a copy made
++    // by the ordinary checkpoint under it) asks to go back ('B'), or until all of them have
++    // ended (end of file: the game quit), then clear away finished children.
++    close(request_pipe[1]);
++    char request = 0;
++    ssize_t bytes;
++    do { bytes = read(request_pipe[0], &request, 1); } while (bytes < 0 && errno == EINTR);
++    close(request_pipe[0]);
++    while (waitpid(-1, nullptr, WNOHANG) > 0) {}
++    if (bytes == 1 && request == 'B') {
++      // the asking process ends itself; wait for our own child if it is that one
++      int status = 0;
++      while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
++      continue;
++    }
++    _exit(0);
++  }
++}
++[[noreturn]] void MarkCheckpoint::back() {
++  if (!active()) throw std::runtime_error("no mark");
++  std::fflush(nullptr);
++  const char request = 'B';
++  ssize_t bytes;
++  do { bytes = write(back_fd_, &request, 1); } while (bytes < 0 && errno == EINTR);
++  _exit(bytes == 1 ? 43 : 1);
++}
+ [[noreturn]] void ProcessCheckpoint::restore() {
+   if (!active()) throw std::runtime_error("no process checkpoint");
+   std::fflush(nullptr);
 diff --git a/port/linux/process_checkpoint.h b/port/linux/process_checkpoint.h
-index acbc199..bb256f7 100644
+index acbc199..6056601 100644
 --- a/port/linux/process_checkpoint.h
 +++ b/port/linux/process_checkpoint.h
-@@ -7,6 +7,7 @@ class ProcessCheckpoint {
+@@ -1,16 +1,37 @@
+ // Linux-only, single-threaded process checkpoint. No portable state serialization.
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ #pragma once
++#include <sys/types.h>
+ namespace linux_host {
+ class ProcessCheckpoint {
+  public:
    ~ProcessCheckpoint();
    // Parent retains the stack here and supervises one running branch. Returns in
    // the branch only: 0 on capture, >0 after each restore from this same parent.
@@ -276,6 +349,29 @@ index acbc199..bb256f7 100644
    unsigned capture();
    [[noreturn]] void restore();
    bool active() const { return restore_fd_ >= 0; }
++  // vid2slp: forget the checkpoint (end its frozen copy); this process carries on as is.
++  void drop();
+  private:
+   int restore_fd_ = -1;
+ };
++
++// vid2slp: a second, longer-lived checkpoint ("mark"), e.g. the start of a search segment. The
++// ordinary checkpoint above can then be captured and moved many times past it, and back() still
++// returns to the mark. Its frozen copy waits for a request on its own pipe (not for its child to
++// end), so the ordinary checkpoint may end its own frozen copies under it.
++class MarkCheckpoint {
++ public:
++  ~MarkCheckpoint();
++  // Returns in the branch only: 0 on mark, >0 after each back(). Drops `inner` first (a
++  // branch of the mark starts without an ordinary checkpoint). Marking again moves the mark.
++  unsigned mark(ProcessCheckpoint& inner);
++  [[noreturn]] void back();
++  bool active() const { return back_fd_ >= 0; }
++ private:
++  int back_fd_ = -1;
++  pid_t holder_ = -1;   // the frozen copy of the mark
++};
+ }
 diff --git a/port/linux/replay_source.cpp b/port/linux/replay_source.cpp
 new file mode 100644
 index 0000000..6d8fec1
@@ -684,7 +780,7 @@ index 0000000..f31ddaf
 +
 +}  // namespace linux_host::replay
 diff --git a/port/linux/retrace_control.cpp b/port/linux/retrace_control.cpp
-index 46f72c2..a97cbaa 100644
+index 46f72c2..45941fd 100644
 --- a/port/linux/retrace_control.cpp
 +++ b/port/linux/retrace_control.cpp
 @@ -21,7 +21,11 @@ void end(std::istream& in) {
@@ -711,11 +807,39 @@ index 46f72c2..a97cbaa 100644
      if (line == "record-status") {
        RecordingStatus status{};
        try {
+@@ -184,6 +192,27 @@ bool RetraceControl::boundary(const MuStatePod& state, const Counters& c) {
+       if (flush_) flush_();
+       checkpoint_.restore();
+     }
++    // vid2slp: "mark" saves a second, longer-lived checkpoint (e.g. the start of a search segment),
++    // "back" returns to it; capture/restore keep working in between (process_checkpoint.h).
++    if (line == "mark") {
++      if (!live_two_player_match(state, include_preroll_)) {
++        send("UNSUPPORTED mark requires a live two-player VS match\n"); continue;
++      }
++      try {
++        if (flush_) flush_();
++        const auto generation = mark_.mark(checkpoint_);
++        send(generation ? "BACK\n" : "MARKED\n");
++        send(out.str());
++      } catch (const std::exception& error) {
++        send(std::string("UNSUPPORTED ") + error.what() + "\n");
++      }
++      continue;
++    }
++    if (line == "back") {
++      if (!mark_.active()) { send("UNSUPPORTED no mark\n"); continue; }
++      if (flush_) flush_();
++      mark_.back();
++    }
+     std::istringstream in(line);
+     std::string command;
+     in >> command;
 diff --git a/port/linux/retrace_control.h b/port/linux/retrace_control.h
-index 65b9440..3eee8d7 100644
+index 65b9440..865294e 100644
 --- a/port/linux/retrace_control.h
 +++ b/port/linux/retrace_control.h
-@@ -28,7 +28,12 @@ class RetraceControl {
+@@ -28,12 +28,18 @@ class RetraceControl {
    bool boundary(const MuStatePod&, const Counters&);
    bool ready() const { return ready_; }
    const std::array<MuPadStatus, 4>& pads() const { return pads_; }
@@ -728,6 +852,12 @@ index 65b9440..3eee8d7 100644
    void send(const std::string&);
    bool receive(std::string&);
    std::function<std::vector<uint8_t>()> replay_;
+   std::function<RecordingStatus()> recording_status_;
+   ProcessCheckpoint checkpoint_;
++  MarkCheckpoint mark_;   // vid2slp: second checkpoint ("mark" / "back")
+   std::function<void()> flush_;
+   int fd_;
+   uint32_t boot_limit_;
 diff --git a/port/runtime/hle/ax_ucode.cpp b/port/runtime/hle/ax_ucode.cpp
 index 62da78e..382ae2f 100644
 --- a/port/runtime/hle/ax_ucode.cpp

@@ -42,12 +42,16 @@ Output: data/m4/closed_loop/<tag>/ (results.csv, config.json, <game>.slp)
 """
 
 import argparse
+import contextlib
+import copy
 import json
 import multiprocessing
 import os
+import queue
 import shutil
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 
 import numpy as np
 import pandas as pd
@@ -55,6 +59,7 @@ import torch
 
 from vid2slp.assemble import replay_scores
 from vid2slp.engine import Engine, blank_player_info
+from vid2slp.engine_pool import EARLY_STOP_PIECE, HISTORY, EnginePool, override_rows, state_cost
 from vid2slp.id_data import BUTTONS, FEATURE_SETS, arrays_from_states, game_arrays, stick_from_raw
 from vid2slp.id_model import build_from_config, predict_probs
 from vid2slp.id_to_slp import processed_sequence
@@ -65,8 +70,8 @@ from vid2slp.slp_write import write_inputs
 OUT = "data/m4/closed_loop"
 CODES = "data/m4/ucf084_gecko.bin"
 AIRBORNE = "data/m4/airborne_by_action.json"   # scripts/m4_airborne_table.py
-HISTORY = 600   # frames of committed inputs re-processed before a chunk (X/Y and L/R alternation)
-EARLY_STOP_PIECE = 8   # a candidate is simulated in pieces of this many frames (see trial())
+# HISTORY (frames re-processed before a chunk) and EARLY_STOP_PIECE (candidates are played in
+# pieces of this many frames) come from src/vid2slp/engine_pool.py, with override_rows and the cost
 COUNTDOWN = 39         # --countdown: players can move from Slippi frame -39; inside the search frame
                        # numbers are then Slippi frame + 39 (0 = the first frame players can move)
 STAGE_PRED = "data/m3/stage_id/pred.csv"   # stage seen in the video (scripts/m3_stage_id.py)
@@ -234,51 +239,15 @@ class Replanner:
         return res
 
 
-def override_rows(cur_tgt, cur_btn, cur_raw, t0, end, ports):
-    """Engine override rows for frames t0 .. end-1, both players, from the input arrays.
-
-    The arrays are turned into .slp input values with processed_sequence (which alternates
-    X/Y and L/R for new presses, so it is run over HISTORY frames before t0 as well)."""
-    a = max(0, t0 - HISTORY)
-    rows = []
-    for i, port in enumerate(ports):
-        seq = processed_sequence(cur_tgt[a:end, i], cur_btn[a:end, i])
-        for f in range(t0, end):
-            v = seq[f - a]
-            raw_c = cur_tgt[f, i, 2:4] - 80      # c-stick raw bytes: the processed value * 80
-            rows.append((f, int(port), v["stick_x"], v["stick_y"], v["cstick_x"], v["cstick_y"],
-                         v["trigger"], v["buttons"], cur_raw[f, i, 0], cur_raw[f, i, 1], raw_c[0], raw_c[1]))
-    return rows
-
-
 # ---- distance between a simulated stretch and the perceived states -------------------------
 
 POS_TAIL = 0.0          # set from --pos-tail in run_game (each worker process)
 
 
 def cost(states, t0, per, ports):
-    """Sum over frames t0.. and both players of how different the engine's states are from the
-    perceived ones. Units: 1 = one frame with the wrong action (10 world units of position
-    error, or 10 % damage error, cost as much; a wrong stock count costs 3; wrong facing 0.5).
-    Frames where perception did not see the character count 0.2.
-    Position errors beyond 30 units add POS_TAIL per extra unit (--pos-tail; 0 = the old flat cap).
-    Why (2026-10-30): with a flat cap, once a rebuilt character is 30+ units off, every candidate
-    costs the same and nothing pulls it back (game 6cd8 drifted offstage and lost a stock)."""
-    total = 0.0
-    for k, st in enumerate(states):
-        f = t0 + k
-        if f >= len(per["action"]):
-            break
-        for i, port in enumerate(ports):
-            p = st["players"][port]
-            c = float(p["action"] != per["action"][f, i])
-            d = abs(p["x"] - per["x"][f, i]) + abs(p["y"] - per["y"][f, i])
-            c += min(d, 30.0) / 10.0 + POS_TAIL * max(d - 30.0, 0.0)
-            c += 0.5 * float((p["facing"] > 0) != (per["facing"][f, i] > 0))
-            c += min(abs(p["percent"] - per["percent"][f, i]), 20.0) / 10.0
-            c += 3.0 * float(p["stocks"] != per["stocks"][f, i])
-            total += c * (1.0 if per["seen"][f, i] else 0.2)
-    return total
+    """Distance between engine states and the perceived states: engine_pool.state_cost (moved there
+    2026-11-05 so the engine pool's helpers use the very same function), with this run's POS_TAIL."""
+    return state_cost(states, t0, per, ports, POS_TAIL)
 
 
 def in_match(state):
@@ -325,6 +294,9 @@ def search_stretch(e, st, stop, ctx, cur, seeds, rows_out, rng, replanner, stats
             for i in range(2):               # player by player (the other keeps its best so far)
                 mine = {k: v[:, i] for k, v in replan.items()} if replan else None
                 scored, best_so_far, seen = [], float("inf"), {}
+                pool = hasattr(e, "trials")          # an EnginePool: play the candidates side by side
+                todo = []                            # pool: candidates still to be played (player, inputs)
+                has_known = False                    # pool: one of them costs `known` (see below)
                 for name, tgt, btn, raw in candidates(probs, base, i, t0, n, args["samples"], rng, oracle, mine,
                                                       args["replan_samples"]):
                     # Identical candidates (e.g. shifting inputs that don't change, or a sample equal
@@ -336,18 +308,36 @@ def search_stretch(e, st, stop, ctx, cur, seeds, rows_out, rng, replanner, stats
                     elif known is not None and np.array_equal(tgt, cur["tgt"][t0:t0 + n, i]) and \
                             np.array_equal(btn, cur["btn"][t0:t0 + n, i]) and np.array_equal(raw, cur["raw"][t0:t0 + n, i]):
                         c = known
+                        has_known = True
+                    elif pool:
+                        c = ("todo", len(todo))      # played below, all at once; the cost is filled in then
+                        todo.append((i, tgt, btn, raw))
                     else:
                         c = trial(i, tgt, btn, raw, span_end, best_so_far)
                     seen[key] = c
-                    best_so_far = min(best_so_far, c)
+                    if not pool:
+                        best_so_far = min(best_so_far, c)
                     scored.append((c, name, tgt, btn, raw))
+                if pool and todo:
+                    # the engine copies play the candidates (src/vid2slp/engine_pool.py): "base" alone
+                    # first, then the others on whichever copy is free; a candidate stops early once
+                    # it is worse than the best real cost so far (known: player 1's choice's cost is
+                    # also one of player 2's candidates' cost). Same choice as playing them one by one.
+                    costs = e.trials(t0, n, span_end, cur, todo, args["early_stop"],
+                                     start=known if has_known else None,
+                                     lead=0 if scored and isinstance(scored[0][0], tuple) and scored[0][0] == ("todo", 0) else None)
+                    scored = [(costs[c[1]] if isinstance(c, tuple) else c, *rest) for c, *rest in scored]
                 if long_end > span_end:
                     # Two stages: the few best candidates are judged again over a LONGER stretch
                     # (tested 2026-10-30: worse than judging every candidate over the long stretch).
                     finalists = sorted(range(len(scored)), key=lambda k: scored[k][0])[:args["finalists"]]
                     if 0 not in finalists:
                         finalists.append(0)          # always keep "base" as a finalist
-                    scored = [(trial(i, *scored[k][2:], long_end), *scored[k][1:]) for k in finalists]
+                    if pool:
+                        again = e.trials(t0, n, long_end, cur, [(i, *scored[k][2:]) for k in finalists], False)
+                        scored = [(c, *scored[k][1:]) for c, k in zip(again, finalists)]
+                    else:
+                        scored = [(trial(i, *scored[k][2:], long_end), *scored[k][1:]) for k in finalists]
                 best = min(scored, key=lambda c: c[0])
                 known = best[0] if long_end <= span_end else None
                 stats["gain"].append(next(c for c, name, *_ in scored if name == "base") - best[0])
@@ -394,12 +384,13 @@ def search_stretch(e, st, stop, ctx, cur, seeds, rows_out, rng, replanner, stats
 def fast_forward(e, final_rows, seeds, stop, ports, replanner=None):
     """Replay the inputs already chosen (exact override rows by frame, and chosen seeds) up to
     frame `stop`, quickly (no search). Returns the engine state there."""
-    rows = [r for f in sorted(final_rows) if f <= stop for r in final_rows[f]]
+    st = e.state()
+    # only the frames still to be played (from a mark, the earlier ones were played already)
+    rows = [r for f in sorted(final_rows) if st["match_frame"] < f <= stop for r in final_rows[f]]
     e.override_many(rows)
     for f, seed in seeds.items():
         if f <= stop:
             e.override_seed(f, seed)
-    st = e.state()
     while in_match(st) and st["match_frame"] < stop:
         t0 = st["match_frame"] + 1
         try:
@@ -474,41 +465,121 @@ def run_game(job):
     segment = args["segment"] if restarts > 1 else end
     threshold = args["restart_threshold"]
 
-    def open_engine():
+    # ---- engines (speed options added 2026-11-05; the result is the same, only faster) ----------
+    # args["engines"]: engine copies for this game in total (default 1: the original search).
+    # With more than one, the attempts of a segment run at the same time, each in its own "lane"
+    # (a thread with its own engine or engine group), and within a lane the candidates of a chunk
+    # are played side by side (src/vid2slp/engine_pool.py). Lanes: as many as attempts can run at
+    # once (the most of --restarts, --extra-restarts, --backtrack), engine copies shared out.
+    # The attempts' results are then judged in the same order as before, so the same one is kept.
+    total_engines = args.get("engines", 1)
+    lanes = 1 if total_engines <= 1 else min(total_engines, max(restarts, args["extra_restarts"], args["backtrack"]))
+    lanes = args.get("lanes") or lanes              # (--lanes: chosen by hand, for speed tests)
+    per_lane = max(1, total_engines // lanes)
+    # Each lane keeps its engine open for the whole game, with a MARK (a second saved state,
+    # Engine.mark()) at the start of the stretch it searched last: the next attempt goes back
+    # there instead of starting a new engine and replaying the game from the start (that took
+    # ~10 % of a long game's time, and far more once the search itself got faster).
+    slots = [{"pool": EnginePool(per_lane, per, ports, POS_TAIL) if per_lane > 1 else None, "e": None, "mark": None}
+             for _ in range(lanes)]
+    threads = ThreadPoolExecutor(lanes) if lanes > 1 else None
+
+    def open_engine(slot):
         """The engine on our starting file (--countdown: from the start of the countdown)."""
         # args["codes"] (optional): another Gecko list, e.g. without NeutralSpawn (real_rebuild.py)
-        return Engine(base_slp, codes=args.get("codes", CODES), preroll=args["countdown"], frame_offset=off)
+        kwargs = dict(codes=args.get("codes", CODES), preroll=args["countdown"], frame_offset=off)
+        if slot["pool"]:
+            return slot["pool"].open(base_slp, **kwargs)
+        return Engine(base_slp, **kwargs)
 
-    def attempt(a_start, a_stop, rng):
+    def engine_at(slot, a_start):
+        """The lane's engine in the state before frame a_start, with the inputs and seeds kept so far
+        (as a new engine replaying the game from the start would be), and a mark there.
+        From the mark if it is at or before a_start (play on from there), else a new engine."""
+        e = slot["e"]
+        try:
+            if e is None or slot["mark"] is None or slot["mark"] > a_start:
+                raise RuntimeError("no usable mark")
+            e.back()
+        except RuntimeError:                         # e.g. a backtrack before the mark, or the engine
+            if e is not None and not slot["pool"]:   # stopped (the replay file ended): start over
+                e.close()
+            e = slot["e"] = open_engine(slot)
+            slot["mark"] = None
+            e.frame_seeds(False)
+        st = fast_forward(e, final_rows, seeds, a_start, ports, None)
+        if a_start < first and first in seeds:     # --start-seed: before the first checkpoint, so
+            e.override_seed(first, seeds[first])   # every candidate of the first chunk uses it too
+        if slot["mark"] != a_start:
+            try:
+                st = e.mark()
+                slot["mark"] = a_start
+            except RuntimeError:                     # e.g. the game is over: no mark, start over next time
+                slot["mark"] = None
+        return e, st
+
+    def attempt(slot, a_start, a_stop, seed):
         """One attempt: replay the kept inputs up to a_start, then search frames a_start..a_stop.
-        Returns (total cost, cost of the searched frames, chosen inputs, seeds, override rows,
-        replanner history, end state, frames judged). The replanner history is put back as it
-        was, so every attempt starts from the same history."""
+        Returns ((total cost, cost of the searched frames, chosen inputs, seeds, override rows,
+        replanner history, end state, frames judged), this attempt's statistics). The attempt
+        works on its own copy of the replanner history, so every attempt starts from the same one."""
         trial_cur = {key: v.copy() for key, v in cur.items()}
         trial_seeds, trial_rows = dict(seeds), {}
-        sim_before = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
-        with open_engine() as e:
-            e.frame_seeds(False)
-            st = fast_forward(e, final_rows, seeds, a_start, ports, None)
-            if a_start < first and first in seeds:     # --start-seed: before the first checkpoint, so
-                e.override_seed(first, seeds[first])   # every candidate of the first chunk uses it too
-            st, a_cost = search_stretch(e, st, a_stop, ctx, trial_cur, trial_seeds, trial_rows, rng,
-                                        replanner, stats)
-            # judge the end state too: play on --lookahead frames with the model's inputs
-            tail = 0.0
-            if in_match(st) and restarts > 1:
-                t0 = st["match_frame"] + 1
-                stop = min(t0 + args["lookahead"], T)
-                e.override_many(override_rows(trial_cur["tgt"], trial_cur["btn"], trial_cur["raw"], t0, stop, ports))
-                try:
-                    tail = cost(e.steps(stop - t0), t0, per, ports)
-                except RuntimeError:
-                    pass
+        mine = None
+        if replanner:                                # same model, own history
+            mine = copy.copy(replanner)
+            mine.sim = {c: v.copy() for c, v in replanner.sim.items()}
+        my_stats = {"choices": {}, "gain": []}
+        e, st = engine_at(slot, a_start)
+        st, a_cost = search_stretch(e, st, a_stop, ctx, trial_cur, trial_seeds, trial_rows,
+                                    np.random.default_rng(seed), mine, my_stats)
+        # judge the end state too: play on --lookahead frames with the model's inputs
+        tail = 0.0
+        if in_match(st) and restarts > 1:
+            t0 = st["match_frame"] + 1
+            stop = min(t0 + args["lookahead"], T)
+            e.override_many(override_rows(trial_cur["tgt"], trial_cur["btn"], trial_cur["raw"], t0, stop, ports))
+            try:
+                tail = cost(e.steps(stop - t0), t0, per, ports)
+            except RuntimeError:
+                pass
         judged = max(1, (a_stop - a_start) + (args["lookahead"] if restarts > 1 else 0))
-        sim_after = {c: v.copy() for c, v in replanner.sim.items()} if replanner else None
-        if replanner:
-            replanner.sim = sim_before
-        return (a_cost + tail, a_cost, trial_cur, trial_seeds, trial_rows, sim_after, st, judged)
+        return (a_cost + tail, a_cost, trial_cur, trial_seeds, trial_rows, mine.sim if mine else None, st,
+                judged), my_stats
+
+    def results_in_order(specs):
+        """Run attempts (a_start, a_stop, random seed) and yield their results in the given order.
+        One lane: one after another, only as many as the caller takes (it may stop early, e.g. no
+        more extra attempts once one fits well). Several lanes: all at once; the ones the caller
+        doesn't take were wasted work, but cost no waiting. Use with contextlib.closing."""
+        if threads is None:
+            for spec in specs:
+                yield attempt(slots[0], *spec)
+            return
+        free = queue.Queue()
+        for slot in slots:
+            free.put(slot)
+
+        def run(spec):
+            slot = free.get()                        # a lane that is not busy
+            try:
+                return attempt(slot, *spec)
+            finally:
+                free.put(slot)
+        futures = [threads.submit(run, spec) for spec in specs]
+        try:
+            for f in futures:
+                yield f.result()
+        finally:                                     # the caller is done: wait for the lanes to be free
+            for f in futures:
+                f.cancel()
+            futures_wait(futures)
+
+    def take(trial_stats):
+        """Count an attempt's statistics, in the order the original search ran its attempts."""
+        for name, n in trial_stats["choices"].items():
+            stats["choices"][name] = stats["choices"].get(name, 0) + n
+        stats["gain"].extend(trial_stats["gain"])
 
     # What the previous segment started from, so it can be searched again (--backtrack).
     prev = None
@@ -520,11 +591,23 @@ def run_game(job):
         # --restarts attempts; then, while the best one still fits the video poorly (cost per
         # judged frame above --restart-threshold), up to --extra-restarts more (2026-10-30: a few
         # bad segments, where the rebuilt game drifts away, decide most of the lost score).
-        while k < restarts or (best[0] / best[7] > threshold and k < restarts + args["extra_restarts"]):
-            trial = attempt(seg_start, seg_stop, np.random.default_rng([args["seed"], max(seg_start, 0), k]))
-            if best is None or trial[0] < best[0]:
-                best = trial
-            k += 1
+        seed_of = lambda j: [args["seed"], max(seg_start, 0), j]
+        with contextlib.closing(results_in_order([(seg_start, seg_stop, seed_of(j)) for j in range(restarts)])) as run:
+            for trial, trial_stats in run:
+                take(trial_stats)
+                if best is None or trial[0] < best[0]:
+                    best = trial
+                k += 1
+        if args["extra_restarts"] > 0 and best[0] / best[7] > threshold:
+            extra = [(seg_start, seg_stop, seed_of(j)) for j in range(restarts, restarts + args["extra_restarts"])]
+            with contextlib.closing(results_in_order(extra)) as run:
+                for trial, trial_stats in run:
+                    take(trial_stats)
+                    if trial[0] < best[0]:
+                        best = trial
+                    k += 1
+                    if best[0] / best[7] <= threshold:
+                        break                        # fits well enough now: no more extra attempts
         stats["attempts"] = stats.get("attempts", 0) + k
         seg_cost_now = round(float(best[0]) / best[7], 2)   # best cost per judged frame
         stats.setdefault("seg_cost", []).append(seg_cost_now)
@@ -548,15 +631,21 @@ def run_game(job):
             cur, seeds, final_rows, track_cost = p["cur"], p["seeds"], p["final_rows"], p["track_cost"]
             if replanner:
                 replanner.sim = p["sim"]
-            for b in range(args["backtrack"]):
-                trial = attempt(p["start"], seg_stop, np.random.default_rng([args["seed"], max(p["start"], 0), 1000 + b]))
-                if trial[0] < have[0]:
-                    have = trial
-                    backtracked = True
+            again = [(p["start"], seg_stop, [args["seed"], max(p["start"], 0), 1000 + b]) for b in range(args["backtrack"])]
+            with contextlib.closing(results_in_order(again)) as run:
+                for trial, trial_stats in run:
+                    take(trial_stats)
+                    if trial[0] < have[0]:
+                        have = trial
+                        backtracked = True
             stats["attempts"] = stats.get("attempts", 0) + 2 * args["backtrack"]   # each spans two segments
             stats.setdefault("backtracks", []).append(
                 [p["start"], seg_cost_now, round(float(have[0]) / have[7], 2), backtracked])
             best = have
+            if backtracked:
+                # the kept inputs before seg_start changed: a mark made there shows the old game
+                for slot in slots:
+                    slot["mark"] = None
 
         # keep the best attempt; remember the state before this segment for a later backtrack
         # (not after a backtrack: going back two segments is not supported, keep it simple)
@@ -577,10 +666,17 @@ def run_game(job):
         seg_start = seg_stop
 
     # the output: replay all chosen inputs and seeds once more and record that game
-    with open_engine() as e:
+    with open_engine(slots[0]) as e:
         e.frame_seeds(False)
         st = fast_forward(e, final_rows, seeds, last_frame, ports)
         data = e.record()
+    for slot in slots:
+        if slot["pool"]:
+            slot["pool"].close()
+        elif slot["e"] is not None:
+            slot["e"].close()
+    if threads:
+        threads.shutdown()
     if args["from_video"]:
         # the starting file is another game: don't let the output name its players
         data = blank_player_info(data)
@@ -655,6 +751,9 @@ def main():
                          "game's random numbers, a borrowed shortcut)")
     ap.add_argument("--seeds", type=int, default=0, help="random seeds tried per chunk (0 = never choose seeds)")
     ap.add_argument("--workers", type=int, default=12)
+    ap.add_argument("--engines", type=int, default=1,
+                    help="engine copies per game that play the candidates side by side (src/vid2slp/engine_pool.py; "
+                         "same result, faster); 1 = the original one-engine search")
     ap.add_argument("--verify", type=int, default=2, help="replay this many outputs in Slippi Playback")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-games", type=int, default=0, help="only the first N games (quick tests)")

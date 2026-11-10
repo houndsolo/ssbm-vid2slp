@@ -26,8 +26,9 @@ one_game() {
     fi
     echo "$(date '+%F %T') start $id game $k"
     # --id=<id> (with "=") so a video id starting with "-" is not read as an option
-    .venv/bin/python -u scripts/real_rebuild.py --id="$id" --games "$k" --tag "$tag" > "$logs/${id}_game$k.log" 2>&1
-    echo "$(date '+%F %T') end $id game $k (exit $?)"
+    .venv/bin/python -u scripts/real_rebuild.py --id="$id" --games "$k" --tag "$tag" --engines 1 > "$logs/${id}_game$k.log" 2>&1
+    status=$?        # saved at once: $(date) below would replace $? with its own exit status
+    echo "$(date '+%F %T') end $id game $k (exit $status)"
 }
 export -f one_game
 

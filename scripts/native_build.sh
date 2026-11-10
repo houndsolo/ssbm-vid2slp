@@ -5,8 +5,12 @@
 #   native/patches/0001-headless-replay-playback.patch  (Slippi replay playback with input/state
 #   overrides for the headless host, a replacement Gecko code list (--replay-codes), optional
 #   per-frame seeds (frame-seeds 0) or chosen ones (override-seed), a checkpoint that can
-#   be moved forward, and faster guest-memory access in the audio emulation (1.8x faster engine,
-#   recordings identical; 2026-10-30); see src/vid2slp/engine.py)
+#   be moved forward, faster guest-memory access in the audio emulation (1.8x faster engine,
+#   recordings identical; 2026-10-30), and a second longer-lived checkpoint, "mark" / "back"
+#   (2026-11-05, so a search attempt no longer replays the game from the start; checked by
+#   scripts/engine_mark_check.py); see src/vid2slp/engine.py)
+# To apply a newer patch to an existing source folder:
+#   git -C data/native/melee-unlocked checkout -- . && git -C data/native/melee-unlocked apply ../../../native/patches/0001-headless-replay-playback.patch
 # Only the small headless HOST is rebuilt. The game library (melee_game.so, the game itself) is the
 # existing build in data/tools/native-engine/build/game (same commit; it already contains Slippi's
 # playback codes natively).
