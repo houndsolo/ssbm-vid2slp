@@ -44,8 +44,10 @@ named `hermes`, which is a different thing.)
   Give each a clear, narrow task and a unique name; close their panes when done.
 - Codex comparison (owner's wish): now and then spawn a Codex agent (model "sol 6.1", reasoning
   low or medium) on the same small task to compare its output with Claude's; report the
-  comparison plainly. As of 2026-11-11 Codex is NOT installed on this machine (no `codex`
-  binary, no ~/.codex): ask the owner before installing it or logging it in.
+  comparison plainly. Codex CLI 0.167.1 installed 2026-11-11 at ~/.local/bin/codex
+  (standalone binary from github.com/openai/codex releases; no Node needed). Upgrade = download
+  a newer codex-x86_64-unknown-linux-musl.tar.gz and replace the binary. The owner logs in
+  (`codex login`); never store their credentials anywhere else.
 - Subagents follow this file too: no deletions, no data commits, no pushing unless told.
 
 ## Architecture
