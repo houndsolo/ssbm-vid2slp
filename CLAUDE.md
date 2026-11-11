@@ -14,8 +14,10 @@ Network engineer learning automation/Linux; NOT a software developer.
 - If something is uncertain or unverified, say so plainly. Do not smooth it over.
 
 ## Machine and hardware constraints
-- Work happens on the V100 server as user `prompter`.
-- This project: /home/prompter/ssbm-vid2slp
+- Work happens on the V100 server (host x370-c6e) as user `mechanic` (was `prompter` until
+  2026-11; /home/prompter is a symlink to /home/mechanic, so old paths still work).
+- This project: /home/mechanic/ssbm-vid2slp (same folder as /home/prompter/ssbm-vid2slp)
+- CPU: Ryzen 7 5700X, 8 cores / 16 threads (the closed-loop rebuild is CPU-bound).
 - Old Codex project: /home/prompter/yt2slp was removed 2026-10-27 (owner's request);
   its last useful pieces now live in data/recordings and data/tools (see "Old attempt" below)
 - GPU: V100 32GB (compute capability sm_70).
@@ -23,7 +25,28 @@ Network engineer learning automation/Linux; NOT a software developer.
 - fp16 autocast + GradScaler only (no bf16).
 - No flash-attn 2; use F.scaled_dot_product_attention.
 - No torch.compile unless tested.
-- Always run long jobs inside tmux and log output to a file.
+- Always run long jobs detached (tmux, a herdr pane, or `setsid nohup ... &`) and log output to a
+  file in logs/. A job must survive the owner closing a window or dropping SSH (2026-11-10: a
+  4-run rebuild died silently when its tmux window closed).
+
+## Herdr: the agent workspace (since 2026-11-11)
+Claude runs inside **herdr** (`HERDR_ENV=1`), a terminal workspace manager for coding agents,
+not plain tmux. (The owner also called it "hermes"; note herdr also knows an agent *kind*
+named `hermes`, which is a different thing.)
+- This session: workspace `ssbm-vid2slp`, tab "vid2slp lead (claude)", pane label `claude-lead`,
+  agent name `vid2slp-lead`. Keep names identifiable; rename new tabs/panes/agents you create.
+- The `herdr` CLI (~/.local/bin/herdr) controls the session: `herdr --skill` prints the full
+  usage guide; `herdr agent list`, `herdr pane list --workspace "$HERDR_WORKSPACE_ID"`.
+- Subagents: Claude may spawn other agents in sibling panes, e.g.
+  `herdr pane split --current --direction right --cwd "$PWD" --no-focus`, then
+  `herdr agent start <name> --kind claude|codex --pane <new pane id>`, then
+  `herdr agent prompt <name> "..." --wait --timeout <ms>` and `herdr agent read <name>`.
+  Give each a clear, narrow task and a unique name; close their panes when done.
+- Codex comparison (owner's wish): now and then spawn a Codex agent (model "sol 6.1", reasoning
+  low or medium) on the same small task to compare its output with Claude's; report the
+  comparison plainly. As of 2026-11-11 Codex is NOT installed on this machine (no `codex`
+  binary, no ~/.codex): ask the owner before installing it or logging it in.
+- Subagents follow this file too: no deletions, no data commits, no pushing unless told.
 
 ## Architecture
 A) Inverse dynamics: per-frame game-state window -> controller inputs.
