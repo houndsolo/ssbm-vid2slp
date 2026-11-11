@@ -68,6 +68,7 @@ import m3_stage_id                                       # noqa: E402  (scripts/
 import real_costume                                      # noqa: E402  (scripts/real_costume.py)
 import real_prepare                                      # noqa: E402  (scripts/real_prepare.py)
 from m4_closed_loop import COUNTDOWN, INTERNAL_TO_EXTERNAL, choose_template, run_game   # noqa: E402
+from m4_closed_loop import template_choices                                               # noqa: E402
 from m4_closed_loop import CODES                                                          # noqa: E402
 from vid2slp.engine import Engine                                                        # noqa: E402
 from vid2slp.id_data import FEATURE_SETS, arrays_from_states                             # noqa: E402
@@ -75,6 +76,7 @@ from vid2slp.id_model import build_from_config, predict_probs                   
 from vid2slp.slp_parse import parse_replay                                               # noqa: E402
 from vid2slp.slp_codes import NEUTRAL_SPAWN, without_code                                # noqa: E402
 from vid2slp.slp_ports import move_ports, set_spawn_points                               # noqa: E402
+from vid2slp.slp_write import extend_frames                                              # noqa: E402
 
 REAL = "data/real"
 PERCENT_X = real_costume.PERCENT_X    # centre column of each port's damage "%" sign (584 x 480)
@@ -86,6 +88,14 @@ RECOMMENDED = dict(chunk=4, lookahead=60, samples=8, long_lookahead=0, finalists
                    extra_restarts=5, restart_threshold=3.0, backtrack=4, pos_tail=0.0,
                    countdown=True, from_video=True, start_seed=0, seeds=0,
                    oracle=False, true_inputs=False, true_raw=False, target="perceived")
+
+# --preset max (2026-11-10): about 2.4x the search attempts for higher accuracy. Measured on the 12
+# validation renders (true replays exist), 2 seeds each: action 0.882 -> 0.903, action+anim 0.784 ->
+# 0.813, stocks 0.986 -> 0.999, better in 18 of 24 game-runs, worse in 4; 2.4x the time.
+# Several whole runs with different --seed, then the run that fits the video best per game
+# (scripts/real_pick.py; uses only the video) gave 0.919 action from 4 runs (picking with the
+# truth instead: 0.920).
+MAX = {**RECOMMENDED, "restarts": 6, "extra_restarts": 12, "restart_threshold": 2.0, "backtrack": 8}
 
 
 def video_ports(video, n=80):
@@ -177,11 +187,30 @@ def write_codes(out_dir):
     return paths
 
 
-def starting_file(template, ports, rule, path, costumes=None):
+def pick_template(stage_id, chars, need, index, splits):
+    """The starting file and how many frames must be added to it (slp_write.extend_frames).
+    Normally a replay at least `need` frames long exists (extra 0). A real game can be longer than
+    every allowed one (6 of 54 batch games, 2026-11-05); then the longest one is taken and made
+    longer by copying its last frame on (checked 2026-11-10: the engine then plays on to the new
+    end; the copied frames' inputs and states are replaced or ignored like all the others)."""
+    try:
+        return choose_template(stage_id, chars, need, index, splits), 0
+    except SystemExit:
+        t = template_choices(stage_id, chars, index, splits)
+        if t.empty:
+            raise
+        longest = t.sort_values(["last_frame", "sha256"], ascending=[False, True]).iloc[0]
+        return longest.path, int(need - longest.last_frame)
+
+
+def starting_file(template, ports, rule, path, costumes=None, extra=0):
     """Write the starting file: the template with its players moved to the video's ports and,
     for the vanilla rule, spawn point bytes -1 (each player starts on their own port's point).
-    costumes (optional): the costume of each player (slot order), as seen in the video."""
+    costumes (optional): the costume of each player (slot order), as seen in the video.
+    extra: frames added at the end (pick_template), for games longer than the template."""
     data = open(template, "rb").read()
+    if extra > 0:
+        data = extend_frames(data, extra)
     if ports != (1, 2):
         data = move_ports(data, ports)
     if rule == "vanilla":
@@ -245,11 +274,13 @@ def main():
                          "the machine, as in scripts/real_rebuild_batch.sh)")
     ap.add_argument("--lanes", type=int, default=0,
                     help="attempts run at the same time per game, each with engines/lanes copies (0 = automatic)")
+    ap.add_argument("--preset", default="recommended", choices=["recommended", "max"],
+                    help="search settings: recommended, or max (about 2.4x the attempts, more accurate; see MAX)")
     ap.add_argument("--tag", required=True)
     args = ap.parse_args()
     out_dir = f"{REAL}/{args.id}/rebuild/{args.tag}"
     os.makedirs(out_dir, exist_ok=True)
-    settings = {**RECOMMENDED, "m2": args.m2, "seed": args.seed, "end": args.end}
+    settings = {**(MAX if args.preset == "max" else RECOMMENDED), "m2": args.m2, "seed": args.seed, "end": args.end}
 
     index = pd.read_csv("data/index/slp_index.csv").drop_duplicates("sha256")
     splits = pd.read_csv("data/index/splits.csv").set_index("sha256")
@@ -281,8 +312,8 @@ def main():
                for c in ("action", "x", "y", "facing", "percent", "stocks", "seen")}
         end = min(args.end + COUNTDOWN, T - settings["lookahead"] - 5)
         chars = [INTERNAL_TO_EXTERNAL[int(perceived[perceived.port == p].character.iloc[0])] for p in (0, 1)]
-        template = choose_template(int(name_to_id[stage]), chars, end - COUNTDOWN + settings["lookahead"] + 300,
-                                   index, splits)
+        template, extra = pick_template(int(name_to_id[stage]), chars, end - COUNTDOWN + settings["lookahead"] + 300,
+                                        index, splits)
         keep = min(T, end + settings["lookahead"] + 10)
         probs = {key: v[:keep] for key, v in probs.items()}
         name = f"game{k}"                       # run_game names its output after the first 12 characters
@@ -292,7 +323,7 @@ def main():
         in_video = video_start(seen)
         spawn_err = {}
         for rule in ("vanilla", "neutral"):
-            starting_file(template, ports, rule, moved)
+            starting_file(template, ports, rule, moved, extra=extra)
             if in_video is not None:
                 start = engine_start(moved, codes[rule], ports)
                 spawn_err[rule] = round(float(np.linalg.norm(start - in_video, axis=1).mean()), 1)
@@ -305,7 +336,7 @@ def main():
         jobs.append([name, moved, probs, per, [p - 1 for p in ports], end, settings, out_dir, None, perceived,
                      int(name_to_id[stage])])
         info[name] = {"stage": stage, "stage_margin": round(margin, 3), "characters": chars,
-                      "video_ports": list(ports), "port_votes": votes, "template": template,
+                      "video_ports": list(ports), "port_votes": votes, "template": template, "template_extra": extra,
                       "spawns": rule, "spawn_error": spawn_err, "costumes": [c for c, _, _ in dressed],
                       "costume_margin": [round(m, 1) for _, m, _ in dressed], "seen": seen}
         print(f"game {k}: {stage} (margin {margin:.2f}), characters {chars}, ports {ports} {votes}, "
@@ -324,7 +355,8 @@ def main():
     for job in jobs:
         name, moved = job[0], job[1]
         rule = info[name]["spawns"] = info[name]["spawns"] or fallback
-        starting_file(info[name]["template"], tuple(info[name]["video_ports"]), rule, moved, info[name]["costumes"])
+        starting_file(info[name]["template"], tuple(info[name]["video_ports"]), rule, moved, info[name]["costumes"],
+                      info[name]["template_extra"])
         job[6] = {**settings, "spawns": rule, "codes": codes[rule], "engines": engines, "lanes": args.lanes}
         print(f"{name}: spawn rule {rule}", flush=True)
     del model

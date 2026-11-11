@@ -182,8 +182,8 @@ def extend_frames(data, extra):
     the longest Slippi 3.19 replays of their stage and characters 11,100-13,200 frames). The
     starting file's inputs and stored states are replaced or ignored anyway (closed loop: our
     inputs, no resync, our own random numbers), so the copied frames only give the game room
-    to go on. Checked so far only by parsing (10,903 -> 11,503 frames); NOT yet played in the
-    engine or used by real_rebuild.py."""
+    to go on. Checked 2026-11-10: a 10,903-frame replay extended by 1,500 plays on in the
+    engine to frame 12,403 (players still respond to inputs). Used by real_rebuild.pick_template."""
     start, end = _raw_bounds(data)
     info_size = data[start + 1]
     sizes = {}

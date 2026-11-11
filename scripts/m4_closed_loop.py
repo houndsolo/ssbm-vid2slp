@@ -691,16 +691,22 @@ def run_game(job):
             "backtracks": json.dumps(stats.get("backtracks", []))}
 
 
+def template_choices(stage_id, characters, index, splits):
+    """All replays that may serve as a starting file (any length): TRAINING split, Slippi 3.19,
+    ports 1 and 2, the same stage and the same character on each port."""
+    t = index[(index.stage_id == stage_id) & (index.character_ids == " ".join(str(c) for c in characters))
+              & (index.ports == "1 2") & (index.eligible == True) & index.version.str.startswith("3.19")]
+    return t[t.sha256.isin(splits[splits.split == "train"].index)]
+
+
 def choose_template(stage_id, characters, min_frames, index, splits):
     """--from-video: a starting file that is NOT the game being rebuilt. A TRAINING-split replay
     with the same stage and the same character on each port (ports 1 and 2, like every replay in
     our library), long enough to hold the rebuilt game (the engine stops where the file ends).
     Only its settings matter: its inputs are all replaced, its random numbers too (--start-seed),
     and its stored states are never used. The lowest sha256 is taken, so the choice is repeatable."""
-    t = index[(index.stage_id == stage_id) & (index.character_ids == " ".join(str(c) for c in characters))
-              & (index.ports == "1 2") & (index.last_frame >= min_frames) & (index.eligible == True)
-              & index.version.str.startswith("3.19")]
-    t = t[t.sha256.isin(splits[splits.split == "train"].index)]
+    t = template_choices(stage_id, characters, index, splits)
+    t = t[t.last_frame >= min_frames]
     if t.empty:
         raise SystemExit(f"no template replay for stage {stage_id}, characters {characters}")
     return t.sort_values("sha256").iloc[0].path
