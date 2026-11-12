@@ -33,8 +33,11 @@ Network engineer learning automation/Linux; NOT a software developer.
 Claude runs inside **herdr** (`HERDR_ENV=1`), a terminal workspace manager for coding agents,
 not plain tmux. (The owner also called it "hermes"; note herdr also knows an agent *kind*
 named `hermes`, which is a different thing.)
-- This session: workspace `ssbm-vid2slp`, tab "vid2slp lead (claude)", pane label `claude-lead`,
-  agent name `vid2slp-lead`. Keep names identifiable; rename new tabs/panes/agents you create.
+- ONE lead Claude session only. On 2026-11-12 two Claude processes were attached to the same
+  conversation (one in herdr as `vid2slp-lead`, one outside it); the owner had the herdr one
+  closed and the other made the lead. Before starting work, check for another lead
+  (`ps -eo pid,etime,args | grep "[c]laude --"`, `herdr agent list`) and don't run two.
+  Keep names of any tabs/panes/agents you create identifiable.
 - The `herdr` CLI (~/.local/bin/herdr) controls the session: `herdr --skill` prints the full
   usage guide; `herdr agent list`, `herdr pane list --workspace "$HERDR_WORKSPACE_ID"`.
 - Subagents: Claude may spawn other agents in sibling panes, e.g.
