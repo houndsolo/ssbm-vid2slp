@@ -19,6 +19,8 @@ Output: data/real/<id>/rebuild/<out>/game<k>.slp (copies of the picked ones) and
 """
 
 import argparse
+import glob
+import json
 import os
 import shutil
 
@@ -45,6 +47,9 @@ def main():
     t["cost_per_frame"] = t.track_cost / t.last_frame.clip(lower=1)
 
     os.makedirs(f"{base}/{args.out}", exist_ok=True)
+    # each picked game's settings (stage, ports, spawn rule ...) from its run's config.json, and the
+    # engine code lists, so later steps (e.g. scripts/real_background.py) can use the picked folder
+    config = {"picked_from": {}, "games": {}}
     rows = []
     for game, g in t.groupby("game"):
         full = g[g.last_frame == g.last_frame.max()]          # runs that reached the full length
@@ -53,8 +58,15 @@ def main():
                                       f"last frame {r.last_frame})" for r in g.itertuples())
               + f" -> {best.tag}")
         shutil.copy(f"{base}/{best.tag}/{game}.slp", f"{base}/{args.out}/{game}.slp")
+        run_config = json.load(open(f"{base}/{best.tag}/config.json"))
+        config["picked_from"][game] = best.tag
+        config["games"][game] = run_config["games"][game]
+        config.setdefault("runs", {})[best.tag] = {k: run_config[k] for k in ("args", "settings")}
+        for codes in glob.glob(f"{base}/{best.tag}/codes_*.bin"):    # the same in every run
+            shutil.copy(codes, f"{base}/{args.out}/")
         rows.append({**best.drop(["tag"]).to_dict(), "picked_from": best.tag,
                      "all_costs_per_frame": {r.tag: round(r.cost_per_frame, 3) for r in g.itertuples()}})
+    json.dump(config, open(f"{base}/{args.out}/config.json", "w"), indent=1)
     res = pd.DataFrame(rows)
     res.to_csv(f"{base}/{args.out}/results.csv", index=False)
     print(res[["game", "picked_from", "action_match", "x_err", "y_err", "percent_err", "stocks_match"]].to_string())

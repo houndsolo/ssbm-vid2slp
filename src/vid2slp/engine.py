@@ -38,6 +38,7 @@ import os
 import socket
 import struct
 import subprocess
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # VID2SLP_HEADLESS: another build of the host (e.g. a test build next to the one in use)
@@ -152,21 +153,26 @@ class Engine:
             cmd.append("--control-preroll")
         if log_file:
             cmd += ["--log-file", log_file]
+        # The engine's messages go to a temporary file, NOT a pipe: nobody reads a pipe while the
+        # engine runs, and once ~64 KB of messages pile up (e.g. one "match scene ends" line per
+        # search attempt whose game ends) the engine blocks on writing and the search waits for it
+        # forever (found 2026-11-11: a whole-game rebuild hung for 17 hours).
+        self._log = tempfile.TemporaryFile()
         self.proc = subprocess.Popen(cmd, pass_fds=[theirs.fileno()], stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.PIPE)
+                                     stderr=self._log)
         theirs.close()
         self.sock = ours
         self.reader = ours.makefile("r", encoding="ascii", newline="\n")
         hello = self._line()
         if hello != "MUCONTROL 2":
-            raise RuntimeError(f"engine said {hello!r}: {self.proc.stderr.read().decode()[-2000:] if self.proc.poll() is not None else ''}")
+            raise RuntimeError(f"engine said {hello!r}: {self.messages() if self.proc.poll() is not None else ''}")
         self._state = self._fix(parse_state(self._line()))
         self._saved_count = self._count
 
     def _line(self):
         line = self.reader.readline()
         if not line:
-            err = self.proc.stderr.read().decode()[-2000:] if self.proc.poll() is not None else ""
+            err = self.messages() if self.proc.poll() is not None else ""
             raise RuntimeError(f"engine closed the connection. {err}")
         return line.rstrip("\n")
 
@@ -176,6 +182,11 @@ class Engine:
             st["match_frame"] = self._count
         st["match_frame"] += self.offset
         return st
+
+    def messages(self, n=2000):
+        """The last n characters the engine wrote to its message log (stderr)."""
+        self._log.seek(0)
+        return self._log.read().decode(errors="replace")[-n:]
 
     def _send(self, text):
         self.sock.sendall((text + "\n").encode("ascii"))
@@ -315,6 +326,7 @@ class Engine:
         except subprocess.TimeoutExpired:
             self.proc.kill()
         self.sock.close()
+        self._log.close()
 
     def __enter__(self):
         return self
